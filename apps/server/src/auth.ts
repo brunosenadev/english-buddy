@@ -8,11 +8,11 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-export function requireAuth(appPassword: string) {
+export function requireAuth(getCurrentPassword: () => string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const header = req.header("authorization") ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (!token || !safeEqual(token, appPassword)) {
+    if (!token || !safeEqual(token, getCurrentPassword())) {
       res.status(401).json({ error: "unauthorized" });
       return;
     }

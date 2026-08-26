@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
-import type { SessionInfo } from "./api";
+import type { HistoryMessage, SessionInfo } from "./api";
 import "./Chat.css";
+import SettingsSheet from "./SettingsSheet";
 
 interface Message {
   id: number;
@@ -10,16 +11,14 @@ interface Message {
 
 type ChatEvent =
   | { type: "delta"; text: string }
-  | { type: "done"; xpAwarded: number; activityClosed: boolean }
+  | { type: "done"; xpAwarded: number; activityClosed: boolean; streakCurrent: number; totalXp: number }
   | { type: "error"; message: string };
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 1,
-    from: "ai",
-    text: "You just fixed a bug. Tell me what was wrong.",
-  },
-];
+const OPENING_MESSAGE: Message = {
+  id: 1,
+  from: "ai",
+  text: "You just fixed a bug. Tell me what was wrong.",
+};
 
 function FlameIcon() {
   return (
@@ -54,6 +53,23 @@ function SendIcon() {
   );
 }
 
+function ChartIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20V10M12 20V4M20 20v-7" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}
+
 // The model writes plain markdown (**bold**, *italic*, `code`) — this is a
 // minimal inline renderer for just those, not a full markdown parser.
 const INLINE_MARKDOWN = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
@@ -74,24 +90,48 @@ function MessageText({ text }: { text: string }) {
   return <>{parts}</>;
 }
 
-let nextId = 2;
+let nextId = 1000;
 
 interface ChatProps {
   token: string;
   sessionInfo: SessionInfo;
+  initialMessages: HistoryMessage[];
   onUnauthorized: () => void;
+  onOpenProgress: () => void;
+  onLogout: () => void;
+  onPasswordChanged: (newToken: string) => void;
 }
 
-function Chat({ token, sessionInfo, onUnauthorized }: ChatProps) {
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+function Chat({
+  token,
+  sessionInfo,
+  initialMessages,
+  onUnauthorized,
+  onOpenProgress,
+  onLogout,
+  onPasswordChanged,
+}: ChatProps) {
+  const [messages, setMessages] = useState<Message[]>(
+    initialMessages.length > 0 ? initialMessages : [OPENING_MESSAGE],
+  );
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [streak, setStreak] = useState(sessionInfo.streakCurrent);
+  const [xpToast, setXpToast] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
       messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight });
     });
+  }
+
+  function showXpToast(amount: number) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setXpToast(amount);
+    toastTimer.current = setTimeout(() => setXpToast(null), 2200);
   }
 
   async function sendMessage() {
@@ -145,6 +185,9 @@ function Chat({ token, sessionInfo, onUnauthorized }: ChatProps) {
               prev.map((m) => (m.id === aiMessageId ? { ...m, text: m.text + event.text } : m)),
             );
             scrollToBottom();
+          } else if (event.type === "done") {
+            setStreak(event.streakCurrent);
+            if (event.xpAwarded > 0) showXpToast(event.xpAwarded);
           } else if (event.type === "error") {
             setMessages((prev) =>
               prev.map((m) =>
@@ -166,16 +209,25 @@ function Chat({ token, sessionInfo, onUnauthorized }: ChatProps) {
   return (
     <div className="chat-stage">
       <div className="chat-panel">
+        {xpToast !== null && <div className="xp-toast">+{xpToast} XP</div>}
+
         <div className="chat-header">
           <div className="chat-header-left">
             <div className="chat-header-mark" />
             <span className="chat-title">English Buddy</span>
+            <span className="level-badge">{sessionInfo.level}</span>
           </div>
           <div className="chat-header-right">
             <div className="chat-streak">
               <FlameIcon />
-              <span className="mono">{sessionInfo.turnCount}</span>
+              <span className="mono">{streak}</span>
             </div>
+            <button className="chat-icon-btn" onClick={onOpenProgress} aria-label="Progress">
+              <ChartIcon />
+            </button>
+            <button className="chat-icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Settings">
+              <GearIcon />
+            </button>
           </div>
         </div>
 
@@ -220,6 +272,15 @@ function Chat({ token, sessionInfo, onUnauthorized }: ChatProps) {
           </div>
         </div>
       </div>
+
+      {settingsOpen && (
+        <SettingsSheet
+          token={token}
+          onClose={() => setSettingsOpen(false)}
+          onLogout={onLogout}
+          onPasswordChanged={onPasswordChanged}
+        />
+      )}
     </div>
   );
 }

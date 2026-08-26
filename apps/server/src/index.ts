@@ -7,13 +7,18 @@ import { fileURLToPath } from "node:url";
 import { requireAuth } from "./auth.js";
 import { MODEL_HAIKU, streamTurn } from "./claude.js";
 import {
+  bumpStreakAndXp,
   countTurns,
-  getProfileLevel,
+  getProfileStats,
+  getRecentCorrections,
+  getRecentVocabulary,
   initDb,
   insertTurn,
   loadHistory,
   newSession,
   saveHistory,
+  seedAppPassword,
+  setAppPassword,
   updateProfileLevel,
 } from "./db.js";
 
@@ -35,16 +40,62 @@ if (!ANTHROPIC_API_KEY) {
 const db = initDb(DB_PATH);
 const sessionId = newSession(db);
 let history: Anthropic.MessageParam[] = loadHistory(db) as Anthropic.MessageParam[];
+let currentPassword = seedAppPassword(db, APP_PASSWORD);
 
 const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
-const auth = requireAuth(APP_PASSWORD);
+const auth = requireAuth(() => currentPassword);
 
 const app = express();
 app.use(express.json());
 
 app.get("/api/session", auth, (_req, res) => {
-  const { level, estimatedLevel } = getProfileLevel(db);
-  res.json({ ok: true, level: estimatedLevel ?? level, turnCount: countTurns(db) });
+  const stats = getProfileStats(db);
+  res.json({
+    ok: true,
+    level: stats.estimatedLevel ?? stats.level,
+    turnCount: countTurns(db),
+    totalXp: stats.totalXp,
+    streakCurrent: stats.streakCurrent,
+    streakLongest: stats.streakLongest,
+  });
+});
+
+app.get("/api/history", auth, (_req, res) => {
+  const messages: { id: number; from: "ai" | "user"; text: string }[] = [];
+  let id = 1;
+  for (const message of history) {
+    if (typeof message.content === "string") continue;
+    const text = message.content
+      .filter((block): block is Anthropic.TextBlockParam => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+    if (!text) continue;
+    messages.push({ id: id++, from: message.role === "assistant" ? "ai" : "user", text });
+  }
+  res.json({ messages });
+});
+
+app.get("/api/progress", auth, (_req, res) => {
+  const stats = getProfileStats(db);
+  res.json({
+    level: stats.estimatedLevel ?? stats.level,
+    totalXp: stats.totalXp,
+    streakCurrent: stats.streakCurrent,
+    streakLongest: stats.streakLongest,
+    corrections: getRecentCorrections(db, 20),
+    vocabulary: getRecentVocabulary(db, 50),
+  });
+});
+
+app.post("/api/change-password", auth, (req, res) => {
+  const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword.trim() : "";
+  if (!newPassword || newPassword.length < 4) {
+    res.status(400).json({ error: "newPassword must be at least 4 characters" });
+    return;
+  }
+  setAppPassword(db, newPassword);
+  currentPassword = newPassword;
+  res.json({ ok: true });
 });
 
 app.post("/api/chat", auth, async (req, res) => {
@@ -57,9 +108,9 @@ app.post("/api/chat", auth, async (req, res) => {
   res.setHeader("Content-Type", "application/x-ndjson");
   const send = (event: Record<string, unknown>) => res.write(`${JSON.stringify(event)}\n`);
 
-  const { level, estimatedLevel } = getProfileLevel(db);
+  const stats = getProfileStats(db);
   const turnCount = countTurns(db);
-  const levelDisplay = estimatedLevel ?? level;
+  const levelDisplay = stats.estimatedLevel ?? stats.level;
   const contextBlock = `Context for this turn — not part of the conversation, never quote it back: total turns so far is ${turnCount}. Current estimated level: ${levelDisplay}${
     turnCount < 15 ? " (still calibrating — few data points so far, treat as a rough default)" : ""
   }.`;
@@ -93,11 +144,15 @@ app.post("/api/chat", auth, async (req, res) => {
     if (outcome.logTurn?.estimated_level) {
       updateProfileLevel(db, outcome.logTurn.estimated_level);
     }
+    const xpAwarded = outcome.logTurn?.xp_awarded ?? 0;
+    const { streakCurrent, totalXp } = bumpStreakAndXp(db, xpAwarded);
 
     send({
       type: "done",
-      xpAwarded: outcome.logTurn?.xp_awarded ?? 0,
+      xpAwarded,
       activityClosed: outcome.logTurn?.activity_closed ?? false,
+      streakCurrent,
+      totalXp,
     });
   } catch (err) {
     send({ type: "error", message: err instanceof Error ? err.message : String(err) });
