@@ -1,0 +1,28 @@
+# Secrets — never commit API keys
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Rust build artifacts
+target/
+
+# Tauri generated
+**/gen/schemas/
+
+# Build outputs
+dist/
+dist-ssr/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# OS
+.DS_Store
+
+# Claude Code local session state
+.claude/

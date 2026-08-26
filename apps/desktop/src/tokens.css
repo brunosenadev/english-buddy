@@ -1,0 +1,34 @@
+:root {
+  --bg: oklch(0.15 0.006 262);
+  --bg-2: oklch(0.185 0.007 262);
+  --bg-3: oklch(0.26 0.02 262);
+  --border: oklch(0.32 0.012 262);
+  --border-soft: oklch(0.26 0.009 262);
+  --text: oklch(0.93 0.004 262);
+  --text-muted: oklch(0.63 0.01 262);
+  --text-faint: oklch(0.46 0.01 262);
+  --accent: oklch(0.72 0.11 258);
+  --accent-soft: oklch(0.72 0.11 258 / 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Manrope", system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
