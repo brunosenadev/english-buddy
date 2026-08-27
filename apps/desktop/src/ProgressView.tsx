@@ -70,7 +70,21 @@ function ProgressView({ token, onBack, onUnauthorized, onOpenVocabulary }: Progr
         setLoadFailed(true);
         return;
       }
-      setProgress(result.data);
+      // Defends against a client/server version mismatch during a deploy
+      // (e.g. this build expects a field the currently-live API doesn't
+      // send yet) — fill in safe defaults instead of crashing the view.
+      setProgress({
+        ...result.data,
+        focusItems: result.data.focusItems ?? [],
+        weeklySummary: result.data.weeklySummary ?? {
+          activeDays: 0,
+          xpThisWeek: 0,
+          correctionsThisWeek: 0,
+          masteredThisWeek: 0,
+        },
+        weeklyCorrectionTrend: result.data.weeklyCorrectionTrend ?? [],
+        todayActivityTypes: result.data.todayActivityTypes ?? [],
+      });
     });
     return () => {
       cancelled = true;
