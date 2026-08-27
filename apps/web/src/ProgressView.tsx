@@ -25,6 +25,18 @@ interface ProgressViewProps {
   onUnauthorized: () => void;
 }
 
+function topMistakes(corrections: ProgressInfo["corrections"], limit: number): { category: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const c of corrections) {
+    const key = c.category ?? "other";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
 function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
 
@@ -66,6 +78,19 @@ function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
                   <span className="stat-label">Day streak</span>
                 </div>
               </div>
+
+              {progress.corrections.length > 0 && (
+                <div>
+                  <div className="progress-section-title">Common mistakes</div>
+                  <div className="vocab-list">
+                    {topMistakes(progress.corrections, 6).map((m) => (
+                      <span className="vocab-chip" key={m.category}>
+                        {m.category} × {m.count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <div className="progress-section-title">Recent corrections</div>

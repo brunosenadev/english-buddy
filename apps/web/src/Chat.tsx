@@ -1,24 +1,45 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { HistoryMessage, SessionInfo } from "./api";
 import "./Chat.css";
 import SettingsSheet from "./SettingsSheet";
 
 interface Message {
   id: number;
-  from: "ai" | "user";
+  from: "ai" | "user" | "system";
   text: string;
 }
 
 type ChatEvent =
   | { type: "delta"; text: string }
-  | { type: "done"; xpAwarded: number; activityClosed: boolean; streakCurrent: number; totalXp: number }
+  | {
+      type: "done";
+      xpAwarded: number;
+      activityClosed: boolean;
+      activityType: string | null;
+      streakCurrent: number;
+      totalXp: number;
+    }
   | { type: "error"; message: string };
 
-const OPENING_MESSAGE: Message = {
-  id: 1,
-  from: "ai",
-  text: "You just fixed a bug. Tell me what was wrong.",
+const ACTIVITY_LABELS: Record<string, string> = {
+  free_conversation: "FREE TALK",
+  quick_challenge: "QUICK CHALLENGE",
+  sentence_correction: "SENTENCE FIX",
+  fill_blank: "FILL THE BLANK",
+  vocabulary: "VOCABULARY",
+  grammar_drill: "GRAMMAR DRILL",
+  tech_context: "TECH TALK",
+  meeting_simulation: "MEETING SIM",
+  interview_simulation: "INTERVIEW SIM",
+  explain_topic: "EXPLAIN THIS",
+  rewrite_natural: "REWRITE IT",
+  error_review: "ERROR REVIEW",
 };
+
+function activityLabel(activityType: string | null): string {
+  if (!activityType) return "GETTING STARTED";
+  return ACTIVITY_LABELS[activityType] ?? activityType.replace(/_/g, " ").toUpperCase();
+}
 
 function FlameIcon() {
   return (
@@ -100,6 +121,7 @@ interface ChatProps {
   onOpenProgress: () => void;
   onLogout: () => void;
   onPasswordChanged: (newToken: string) => void;
+  onConversationReset: () => void;
 }
 
 function Chat({
@@ -110,17 +132,19 @@ function Chat({
   onOpenProgress,
   onLogout,
   onPasswordChanged,
+  onConversationReset,
 }: ChatProps) {
-  const [messages, setMessages] = useState<Message[]>(
-    initialMessages.length > 0 ? initialMessages : [OPENING_MESSAGE],
-  );
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [streak, setStreak] = useState(sessionInfo.streakCurrent);
+  const [streakAtRisk, setStreakAtRisk] = useState(sessionInfo.streakAtRisk);
+  const [activityType, setActivityType] = useState<string | null>(sessionInfo.lastActivityType);
   const [xpToast, setXpToast] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kickedOff = useRef(false);
 
   function scrollToBottom() {
     requestAnimationFrame(() => {
@@ -133,6 +157,80 @@ function Chat({
     setXpToast(amount);
     toastTimer.current = setTimeout(() => setXpToast(null), 2200);
   }
+
+  async function streamInto(url: string, body: Record<string, unknown> | null, aiMessageId: number) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+
+    if (res.status === 401) {
+      onUnauthorized();
+      return;
+    }
+    if (!res.ok || !res.body) {
+      throw new Error(`request failed (${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      let newlineIndex: number;
+      while ((newlineIndex = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, newlineIndex);
+        buf = buf.slice(newlineIndex + 1);
+        if (!line.trim()) continue;
+
+        const event = JSON.parse(line) as ChatEvent;
+        if (event.type === "delta") {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiMessageId ? { ...m, text: m.text + event.text } : m)),
+          );
+          scrollToBottom();
+        } else if (event.type === "done") {
+          setStreak(event.streakCurrent);
+          setStreakAtRisk(false);
+          if (event.activityType) setActivityType(event.activityType);
+          if (event.xpAwarded > 0) showXpToast(event.xpAwarded);
+          if (event.activityClosed) {
+            setMessages((prev) => [
+              ...prev,
+              { id: nextId++, from: "system", text: "Activity complete" },
+            ]);
+          }
+        } else if (event.type === "error") {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMessageId ? { ...m, text: `Error: ${event.message}` } : m,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (initialMessages.length > 0 || kickedOff.current) return;
+    kickedOff.current = true;
+    const aiMessageId = nextId++;
+    setMessages([{ id: aiMessageId, from: "ai", text: "" }]);
+    streamInto("/api/kickoff", null, aiMessageId).catch((err) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === aiMessageId ? { ...m, text: `Error: ${String(err)}` } : m)),
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function sendMessage() {
     const text = draft.trim();
@@ -147,56 +245,7 @@ function Chat({
     scrollToBottom();
 
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ text }),
-      });
-
-      if (res.status === 401) {
-        onUnauthorized();
-        return;
-      }
-      if (!res.ok || !res.body) {
-        throw new Error(`request failed (${res.status})`);
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-
-        let newlineIndex: number;
-        while ((newlineIndex = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, newlineIndex);
-          buf = buf.slice(newlineIndex + 1);
-          if (!line.trim()) continue;
-
-          const event = JSON.parse(line) as ChatEvent;
-          if (event.type === "delta") {
-            setMessages((prev) =>
-              prev.map((m) => (m.id === aiMessageId ? { ...m, text: m.text + event.text } : m)),
-            );
-            scrollToBottom();
-          } else if (event.type === "done") {
-            setStreak(event.streakCurrent);
-            if (event.xpAwarded > 0) showXpToast(event.xpAwarded);
-          } else if (event.type === "error") {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === aiMessageId ? { ...m, text: `Error: ${event.message}` } : m,
-              ),
-            );
-          }
-        }
-      }
+      await streamInto("/api/chat", { text }, aiMessageId);
     } catch (err) {
       setMessages((prev) =>
         prev.map((m) => (m.id === aiMessageId ? { ...m, text: `Error: ${String(err)}` } : m)),
@@ -218,7 +267,7 @@ function Chat({
             <span className="level-badge">{sessionInfo.level}</span>
           </div>
           <div className="chat-header-right">
-            <div className="chat-streak">
+            <div className={streakAtRisk ? "chat-streak at-risk" : "chat-streak"}>
               <FlameIcon />
               <span className="mono">{streak}</span>
             </div>
@@ -234,20 +283,24 @@ function Chat({
         <div className="chat-body">
           <div className="chat-tag">
             <BoltIcon />
-            <span>QUICK CHALLENGE</span>
+            <span>{activityLabel(activityType)}</span>
           </div>
 
           <div className="chat-messages" ref={messagesRef}>
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={
-                  m.from === "ai" ? "bubble-msg ai-msg" : "bubble-msg user-msg"
-                }
-              >
-                <MessageText text={m.text} />
-              </div>
-            ))}
+            {messages.map((m) =>
+              m.from === "system" ? (
+                <div className="chat-divider" key={m.id}>
+                  <span>{m.text}</span>
+                </div>
+              ) : (
+                <div
+                  key={m.id}
+                  className={m.from === "ai" ? "bubble-msg ai-msg" : "bubble-msg user-msg"}
+                >
+                  <MessageText text={m.text} />
+                </div>
+              ),
+            )}
           </div>
 
           <div className="chat-input-row">
@@ -279,6 +332,10 @@ function Chat({
           onClose={() => setSettingsOpen(false)}
           onLogout={onLogout}
           onPasswordChanged={onPasswordChanged}
+          onConversationReset={() => {
+            setSettingsOpen(false);
+            onConversationReset();
+          }}
         />
       )}
     </div>

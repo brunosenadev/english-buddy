@@ -30,6 +30,9 @@ export interface SessionInfo {
   totalXp: number;
   streakCurrent: number;
   streakLongest: number;
+  streakAtRisk: boolean;
+  lastActivityType: string | null;
+  hasHistory: boolean;
 }
 
 /** Validates a password against the server and returns session info if it's correct. */
@@ -78,6 +81,14 @@ export async function getProgress(token: string): Promise<ProgressInfo | null> {
   });
   if (!res.ok) return null;
   return (await res.json()) as ProgressInfo;
+}
+
+export async function resetConversation(token: string): Promise<boolean> {
+  const res = await fetch("/api/reset-conversation", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.ok;
 }
 
 export async function changePassword(

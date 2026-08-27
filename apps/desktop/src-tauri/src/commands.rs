@@ -3,6 +3,24 @@ use crate::state::SharedState;
 use serde_json::json;
 use tauri::{ipc::Channel, State};
 
+/// A per-turn nudge on top of the system prompt's language-balance rule —
+/// repeating it fresh right before generation measurably improves how often
+/// the model actually follows it, versus relying on the system prompt alone.
+fn language_reminder(level: &str) -> &'static str {
+    let l = level.to_uppercase();
+    if l.starts_with('A') {
+        "Reminder: explain almost everything in Portuguese this turn — only the target English sentence/prompt should be in English."
+    } else if l.starts_with("B1") {
+        "Reminder: keep explanations and instructions mostly in Portuguese this turn. English is only for the practice sentence/prompt itself and a few simple recurring phrases."
+    } else if l.starts_with("B2") {
+        "Reminder: explanations can be mostly English now, dropping to Portuguese only for a genuinely tricky nuance."
+    } else if l.starts_with('C') {
+        "Reminder: full English is fine now — Portuguese only if he seems truly stuck."
+    } else {
+        "Reminder: when unsure, default to Portuguese for explanations — only the target English sentence/prompt should be in English."
+    }
+}
+
 #[tauri::command]
 pub async fn send_message(
     state: State<'_, SharedState>,
@@ -16,12 +34,13 @@ pub async fn send_message(
         let turn_count = crate::db::count_turns(&guard.db).unwrap_or(0);
         let level_display = estimated_level.as_deref().unwrap_or(level.as_str());
         let context_block = format!(
-            "Context for this turn — not part of the conversation, never quote it back: total turns so far is {turn_count}. Current estimated level: {level_display}{}.",
+            "Context for this turn — not part of the conversation, never quote it back: total turns so far is {turn_count}. Current estimated level: {level_display}{}. {}",
             if turn_count < 15 {
                 " (still calibrating — few data points so far, treat as a rough default)"
             } else {
                 ""
-            }
+            },
+            language_reminder(level_display)
         );
         (
             guard.client.clone(),

@@ -72,6 +72,8 @@ export function initDb(dbPath: string): Database.Database {
   ensureColumn(db, "user_profile", "streak_current", "streak_current INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "user_profile", "streak_longest", "streak_longest INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "user_profile", "last_active_date", "last_active_date TEXT");
+  ensureColumn(db, "user_profile", "last_activity_type", "last_activity_type TEXT");
+  ensureColumn(db, "user_profile", "next_focus_hint", "next_focus_hint TEXT");
   return db;
 }
 
@@ -108,12 +110,21 @@ export interface ProfileStats {
   totalXp: number;
   streakCurrent: number;
   streakLongest: number;
+  streakAtRisk: boolean;
+  lastActivityType: string | null;
+  nextFocusHint: string | null;
+}
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export function getProfileStats(db: Database.Database): ProfileStats {
   const row = db
     .prepare(
-      "SELECT level, estimated_level, total_xp, streak_current, streak_longest FROM user_profile WHERE id = 1",
+      `SELECT level, estimated_level, total_xp, streak_current, streak_longest,
+              last_active_date, last_activity_type, next_focus_hint
+       FROM user_profile WHERE id = 1`,
     )
     .get() as {
     level: string;
@@ -121,6 +132,9 @@ export function getProfileStats(db: Database.Database): ProfileStats {
     total_xp: number;
     streak_current: number;
     streak_longest: number;
+    last_active_date: string | null;
+    last_activity_type: string | null;
+    next_focus_hint: string | null;
   };
   return {
     level: row.level,
@@ -128,11 +142,10 @@ export function getProfileStats(db: Database.Database): ProfileStats {
     totalXp: row.total_xp,
     streakCurrent: row.streak_current,
     streakLongest: row.streak_longest,
+    streakAtRisk: row.streak_current > 0 && row.last_active_date !== todayUtc(),
+    lastActivityType: row.last_activity_type,
+    nextFocusHint: row.next_focus_hint,
   };
-}
-
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function isYesterday(dateStr: string, today: string): boolean {
@@ -142,11 +155,15 @@ function isYesterday(dateStr: string, today: string): boolean {
 }
 
 /**
- * Awards XP and updates the daily streak for this turn — a streak day is
- * "at least one turn happened," compared against UTC dates (single-user app,
- * timezone edge cases at midnight are an acceptable simplification for now).
+ * Awards XP, updates the daily streak, and remembers the activity type /
+ * next-focus note from this turn — a streak day is "at least one turn
+ * happened," compared against UTC dates (single-user app, timezone edge
+ * cases at midnight are an acceptable simplification for now).
  */
-export function bumpStreakAndXp(db: Database.Database, xpAwarded: number): { streakCurrent: number; totalXp: number } {
+export function recordTurnOutcome(
+  db: Database.Database,
+  input: { xpAwarded: number; activityType: string | null; nextFocusHint: string | null },
+): { streakCurrent: number; totalXp: number } {
   const row = db
     .prepare("SELECT streak_current, streak_longest, last_active_date, total_xp FROM user_profile WHERE id = 1")
     .get() as { streak_current: number; streak_longest: number; last_active_date: string | null; total_xp: number };
@@ -161,11 +178,13 @@ export function bumpStreakAndXp(db: Database.Database, xpAwarded: number): { str
     streakCurrent = 1;
   }
   const streakLongest = Math.max(row.streak_longest, streakCurrent);
-  const totalXp = row.total_xp + Math.max(0, xpAwarded);
+  const totalXp = row.total_xp + Math.max(0, input.xpAwarded);
 
   db.prepare(
-    "UPDATE user_profile SET streak_current = ?, streak_longest = ?, last_active_date = ?, total_xp = ?, updated_at = datetime('now') WHERE id = 1",
-  ).run(streakCurrent, streakLongest, today, totalXp);
+    `UPDATE user_profile SET streak_current = ?, streak_longest = ?, last_active_date = ?, total_xp = ?,
+     last_activity_type = COALESCE(?, last_activity_type), next_focus_hint = COALESCE(?, next_focus_hint),
+     updated_at = datetime('now') WHERE id = 1`,
+  ).run(streakCurrent, streakLongest, today, totalXp, input.activityType, input.nextFocusHint);
 
   return { streakCurrent, totalXp };
 }

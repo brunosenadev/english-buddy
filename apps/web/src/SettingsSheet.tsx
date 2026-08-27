@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { changePassword } from "./api";
+import { changePassword, resetConversation } from "./api";
 import "./SettingsSheet.css";
 
 function CloseIcon() {
@@ -23,12 +23,22 @@ interface SettingsSheetProps {
   onClose: () => void;
   onLogout: () => void;
   onPasswordChanged: (newToken: string) => void;
+  onConversationReset: () => void;
 }
 
-function SettingsSheet({ token, onClose, onLogout, onPasswordChanged }: SettingsSheetProps) {
+function SettingsSheet({ token, onClose, onLogout, onPasswordChanged, onConversationReset }: SettingsSheetProps) {
   const [newPassword, setNewPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "error" | "success"; text: string } | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
+  async function doReset() {
+    setResetting(true);
+    const ok = await resetConversation(token);
+    setResetting(false);
+    if (ok) onConversationReset();
+  }
 
   async function save() {
     if (!newPassword || saving) return;
@@ -74,6 +84,25 @@ function SettingsSheet({ token, onClose, onLogout, onPasswordChanged }: Settings
             </button>
           </div>
           {feedback && <span className={`settings-feedback ${feedback.kind}`}>{feedback.text}</span>}
+        </div>
+
+        <div className="settings-section">
+          <span className="settings-label">Conversation</span>
+          {confirmingReset ? (
+            <div className="settings-row">
+              <span className="settings-confirm-text">Erase the current conversation context?</span>
+              <button className="settings-save danger" onClick={doReset} disabled={resetting}>
+                {resetting ? "…" : "Yes, reset"}
+              </button>
+              <button className="settings-logout" onClick={() => setConfirmingReset(false)}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button className="settings-logout" onClick={() => setConfirmingReset(true)}>
+              Start a new conversation
+            </button>
+          )}
         </div>
 
         <div className="settings-section">

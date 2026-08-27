@@ -104,6 +104,10 @@
   color: var(--text-faint);
 }
 
+.chat-streak.at-risk {
+  color: oklch(0.75 0.16 55);
+}
+
 .chat-icon-btn {
   background: none;
   border: none;
@@ -178,6 +182,24 @@
   color: var(--text);
   border: 1px solid var(--border-soft);
   border-radius: 14px 14px 4px 14px;
+}
+
+.chat-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0;
+}
+
+.chat-divider span {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-3);
 }
 
 .chat-input-row {

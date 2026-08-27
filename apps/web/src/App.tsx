@@ -32,6 +32,7 @@ async function loadSignedInState(token: string): Promise<AuthState> {
 function App() {
   const [auth, setAuth] = useState<AuthState>({ status: "checking" });
   const [view, setView] = useState<View>("chat");
+  const [chatKey, setChatKey] = useState(0);
 
   useEffect(() => {
     const token = getToken();
@@ -57,16 +58,21 @@ function App() {
     setAuth((prev) => (prev.status === "signed-in" ? { ...prev, token: newToken } : prev));
   }
 
+  function handleConversationReset() {
+    setAuth((prev) => (prev.status === "signed-in" ? { ...prev, initialMessages: [] } : prev));
+    setChatKey((k) => k + 1);
+  }
+
+  async function handleAuthenticated(token: string, sessionInfo: SessionInfo) {
+    setAuth({ status: "checking" });
+    const initialMessages = await getHistory(token);
+    setAuth({ status: "signed-in", token, sessionInfo, initialMessages });
+  }
+
   if (auth.status === "checking") return null;
 
   if (auth.status === "signed-out") {
-    return (
-      <PasswordGate
-        onAuthenticated={(token, sessionInfo) =>
-          setAuth({ status: "signed-in", token, sessionInfo, initialMessages: [] })
-        }
-      />
-    );
+    return <PasswordGate onAuthenticated={handleAuthenticated} />;
   }
 
   if (view === "progress") {
@@ -81,6 +87,7 @@ function App() {
 
   return (
     <Chat
+      key={chatKey}
       token={auth.token}
       sessionInfo={auth.sessionInfo}
       initialMessages={auth.initialMessages}
@@ -88,6 +95,7 @@ function App() {
       onOpenProgress={() => setView("progress")}
       onLogout={handleLogout}
       onPasswordChanged={handlePasswordChanged}
+      onConversationReset={handleConversationReset}
     />
   );
 }
