@@ -15,15 +15,21 @@ import {
   getRecentCorrections,
   getRecentFocusItems,
   getRecentVocabulary,
+  getTodayActivityTypes,
+  getTopActivityAffinities,
+  getWeeklyCorrectionTrend,
+  getWeeklySummary,
   initDb,
   insertTurn,
   loadHistory,
+  maybeAwardDailyBonus,
   newSession,
   recordReviewOutcome,
   recordTurnOutcome,
   saveHistory,
   seedAppPassword,
   setAppPassword,
+  updateActivityAffinity,
   updateProfileLevel,
   upsertContextItem,
 } from "./db.js";
@@ -173,6 +179,9 @@ app.get("/api/progress", auth, (_req, res) => {
     corrections: getRecentCorrections(db, 20),
     vocabulary: getRecentVocabulary(db, 50),
     focusItems: getRecentFocusItems(db, 10),
+    weeklySummary: getWeeklySummary(db),
+    weeklyCorrectionTrend: getWeeklyCorrectionTrend(db),
+    todayActivityTypes: getTodayActivityTypes(db),
   });
 });
 
@@ -231,9 +240,19 @@ async function runTurnUnlocked(userText: string, res: express.Response): Promise
           .join("; ")}.`
       : "";
 
+  const topAffinities = getTopActivityAffinities(db, 2);
+  const affinityNote =
+    topAffinities.length > 0
+      ? ` Activity types that have engaged him most so far: ${topAffinities.map((a) => a.type).join(", ")} — lean into these more often, without dropping variety entirely.`
+      : "";
+
+  const doneToday = getTodayActivityTypes(db);
+  const varietyNote =
+    doneToday.length > 0 ? ` Activity types already practiced today: ${doneToday.join(", ")} — favor a different one now if it fits.` : "";
+
   const contextBlock = `Context for this turn — not part of the conversation, never quote it back: total turns so far is ${turnCount}. Current estimated level: ${levelDisplay}${
     turnCount < 15 ? " (still calibrating — few data points so far, treat as a rough default)" : ""
-  }.${focusNote}${dueNote} ${languageReminder(levelDisplay)}`;
+  }.${focusNote}${dueNote}${affinityNote}${varietyNote} ${languageReminder(levelDisplay)}`;
 
   const nextHistory: Anthropic.MessageParam[] = [
     ...history,
@@ -279,16 +298,29 @@ async function runTurnUnlocked(userText: string, res: express.Response): Promise
         outcome.logTurn.review_outcome.correct,
       );
     }
+    if (outcome.logTurn?.activity_type) {
+      updateActivityAffinity(
+        db,
+        outcome.logTurn.activity_type,
+        outcome.logTurn.xp_awarded ?? 0,
+        outcome.logTurn.activity_closed ?? false,
+      );
+    }
+
     const xpAwarded = outcome.logTurn?.xp_awarded ?? 0;
-    const { streakCurrent, totalXp } = recordTurnOutcome(db, {
+    const { streakCurrent, totalXp: totalXpBeforeBonus } = recordTurnOutcome(db, {
       xpAwarded,
       activityType: outcome.logTurn?.activity_type ?? null,
       nextFocusHint: outcome.logTurn?.next_focus_hint ?? null,
     });
 
+    const bonusXp = maybeAwardDailyBonus(db);
+    const totalXp = totalXpBeforeBonus + bonusXp;
+
     send({
       type: "done",
       xpAwarded,
+      bonusXp,
       activityClosed: outcome.logTurn?.activity_closed ?? false,
       activityType: outcome.logTurn?.activity_type ?? null,
       streakCurrent,

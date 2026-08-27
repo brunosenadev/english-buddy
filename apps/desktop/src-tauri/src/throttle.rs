@@ -12,6 +12,10 @@ const MAX_INTERVAL_MIN: f64 = 150.0;
 const MAX_DAILY_NUDGES: u32 = 8;
 const IDLE_PRESENT_THRESHOLD_SECS: u64 = 120;
 const CHECK_INTERVAL_SECS: u64 = 60;
+// Quiet hours: no nudges from 10pm to 8am local time — being present at the
+// keyboard at 2am isn't an invitation to practice English.
+const QUIET_HOURS_START: u16 = 22;
+const QUIET_HOURS_END: u16 = 8;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct NudgeState {
@@ -92,6 +96,22 @@ fn idle_seconds() -> u64 {
     0
 }
 
+#[cfg(windows)]
+fn local_hour() -> u16 {
+    use windows::Win32::System::SystemInformation::GetLocalTime;
+    unsafe { GetLocalTime().wHour }
+}
+
+#[cfg(not(windows))]
+fn local_hour() -> u16 {
+    12
+}
+
+fn in_quiet_hours() -> bool {
+    let hour = local_hour();
+    hour >= QUIET_HOURS_START || hour < QUIET_HOURS_END
+}
+
 /// Called from the frontend when a nudge actually gets clicked into a chat
 /// open — resets the backoff to the base interval, since responding to a
 /// nudge is the "it worked" signal, not just showing it.
@@ -106,6 +126,10 @@ pub fn nudge_acknowledged(app: AppHandle) {
 }
 
 fn maybe_nudge(app: &AppHandle) {
+    if in_quiet_hours() {
+        return;
+    }
+
     let mut state = load_state(app);
 
     if state.nudges_today >= MAX_DAILY_NUDGES {
@@ -136,6 +160,20 @@ fn maybe_nudge(app: &AppHandle) {
     save_state(app, &state);
 
     let _ = app.emit("eb://nudge", ());
+    notify(app);
+}
+
+/// Native Windows toast, in addition to the bubble's own pulsing state —
+/// catches the moment when the bubble itself is out of sight (minimized
+/// behind other windows, second monitor, etc).
+fn notify(app: &AppHandle) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("English Buddy")
+        .body("Got a minute? Quick English practice.")
+        .show();
 }
 
 pub fn start(app: AppHandle) {

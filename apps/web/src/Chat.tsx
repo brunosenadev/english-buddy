@@ -14,6 +14,7 @@ type ChatEvent =
   | {
       type: "done";
       xpAwarded: number;
+      bonusXp: number;
       activityClosed: boolean;
       activityType: string | null;
       streakCurrent: number;
@@ -39,6 +40,35 @@ const ACTIVITY_LABELS: Record<string, string> = {
 function activityLabel(activityType: string | null): string {
   if (!activityType) return "GETTING STARTED";
   return ACTIVITY_LABELS[activityType] ?? activityType.replace(/_/g, " ").toUpperCase();
+}
+
+// The AI decides what to do by default — this is an opt-in escape hatch for
+// when you want to steer it yourself. Each entry is a natural-sounding
+// English request sent through the normal chat turn, not a special API
+// path, so the model just picks it up and runs with it.
+const ACTIVITY_REQUESTS: { type: string; label: string; prompt: string }[] = [
+  { type: "quick_challenge", label: "Quick challenge", prompt: "Give me a quick challenge right now." },
+  { type: "sentence_correction", label: "Sentence fix", prompt: "Check a sentence I'm about to write for mistakes." },
+  { type: "fill_blank", label: "Fill the blank", prompt: "Give me a fill-in-the-blank exercise." },
+  { type: "vocabulary", label: "Vocabulary", prompt: "Let's practice some vocabulary." },
+  { type: "grammar_drill", label: "Grammar drill", prompt: "Let's drill some grammar." },
+  { type: "tech_context", label: "Tech talk", prompt: "Let's talk about something from my work." },
+  { type: "meeting_simulation", label: "Meeting sim", prompt: "Let's simulate a work meeting." },
+  { type: "interview_simulation", label: "Interview sim", prompt: "Let's simulate a job interview." },
+  { type: "explain_topic", label: "Explain this", prompt: "I want to practice explaining a technical topic." },
+  { type: "rewrite_natural", label: "Rewrite it", prompt: "Help me rewrite a sentence more naturally." },
+  { type: "error_review", label: "Review my mistakes", prompt: "Let's review my recurring mistakes." },
+];
+
+function DiceIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" />
+      <circle cx="16" cy="16" r="1" fill="currentColor" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+    </svg>
+  );
 }
 
 function FlameIcon() {
@@ -142,6 +172,7 @@ function Chat({
   const [activityType, setActivityType] = useState<string | null>(sessionInfo.lastActivityType);
   const [xpToast, setXpToast] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const kickedOff = useRef(false);
@@ -208,6 +239,12 @@ function Chat({
               { id: nextId++, from: "system", text: "Activity complete" },
             ]);
           }
+          if (event.bonusXp > 0) {
+            setMessages((prev) => [
+              ...prev,
+              { id: nextId++, from: "system", text: `+${event.bonusXp} XP daily variety bonus` },
+            ]);
+          }
         } else if (event.type === "error") {
           setMessages((prev) =>
             prev.map((m) =>
@@ -232,8 +269,8 @@ function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function sendMessage() {
-    const text = draft.trim();
+  async function sendMessage(override?: string) {
+    const text = (override ?? draft).trim();
     if (!text || sending) return;
 
     setDraft("");
@@ -303,7 +340,32 @@ function Chat({
             )}
           </div>
 
+          {pickerOpen && (
+            <div className="activity-picker">
+              {ACTIVITY_REQUESTS.map((a) => (
+                <button
+                  key={a.type}
+                  className="activity-picker-item"
+                  onClick={() => {
+                    setPickerOpen(false);
+                    sendMessage(a.prompt);
+                  }}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="chat-input-row">
+            <button
+              className="chat-icon-btn"
+              onClick={() => setPickerOpen((v) => !v)}
+              disabled={sending}
+              aria-label="Choose an activity"
+            >
+              <DiceIcon />
+            </button>
             <input
               className="chat-input"
               placeholder="Type your answer in English…"
@@ -316,7 +378,7 @@ function Chat({
             />
             <button
               className="chat-send"
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={sending}
               aria-label="Send"
             >

@@ -82,6 +82,13 @@ export interface FocusItem {
   status: string;
 }
 
+export interface WeeklySummary {
+  activeDays: number;
+  xpThisWeek: number;
+  correctionsThisWeek: number;
+  masteredThisWeek: number;
+}
+
 export interface ProgressInfo {
   level: string;
   totalXp: number;
@@ -90,6 +97,9 @@ export interface ProgressInfo {
   corrections: CorrectionEntry[];
   vocabulary: string[];
   focusItems: FocusItem[];
+  weeklySummary: WeeklySummary;
+  weeklyCorrectionTrend: number[];
+  todayActivityTypes: string[];
 }
 
 export type ProgressResult =

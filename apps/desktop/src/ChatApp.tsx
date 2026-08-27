@@ -11,13 +11,14 @@ import {
 import Chat from "./Chat";
 import PasswordGate from "./PasswordGate";
 import ProgressView from "./ProgressView";
+import VocabularyView from "./VocabularyView";
 
 type AuthState =
   | { status: "checking" }
   | { status: "signed-out" }
   | { status: "signed-in"; token: string; sessionInfo: SessionInfo; initialMessages: HistoryMessage[] };
 
-type View = "chat" | "progress";
+type View = "chat" | "progress" | "vocabulary";
 
 async function loadSignedInState(token: string): Promise<AuthState> {
   try {
@@ -106,6 +107,14 @@ function ChatApp() {
         <ProgressView
           token={auth.token}
           onBack={() => setView("chat")}
+          onUnauthorized={handleUnauthorized}
+          onOpenVocabulary={() => setView("vocabulary")}
+        />
+      )}
+      {view === "vocabulary" && (
+        <VocabularyView
+          token={auth.token}
+          onBack={() => setView("progress")}
           onUnauthorized={handleUnauthorized}
         />
       )}

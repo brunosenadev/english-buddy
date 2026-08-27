@@ -31,6 +31,13 @@ interface ProgressViewProps {
   token: string;
   onBack: () => void;
   onUnauthorized: () => void;
+  onOpenVocabulary: () => void;
+}
+
+const DAILY_BONUS_THRESHOLD = 3;
+
+function prettyActivity(type: string): string {
+  return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function topMistakes(corrections: ProgressInfo["corrections"], limit: number): { category: string; count: number }[] {
@@ -45,7 +52,7 @@ function topMistakes(corrections: ProgressInfo["corrections"], limit: number): {
     .slice(0, limit);
 }
 
-function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
+function ProgressView({ token, onBack, onUnauthorized, onOpenVocabulary }: ProgressViewProps) {
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
@@ -107,6 +114,60 @@ function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
                 </div>
               </div>
 
+              <div>
+                <div className="progress-section-title">This week</div>
+                <div className="week-summary">
+                  <div className="week-stat">
+                    <span className="week-value">{progress.weeklySummary.activeDays}/7</span>
+                    <span className="week-label">active days</span>
+                  </div>
+                  <div className="week-stat">
+                    <span className="week-value">{progress.weeklySummary.xpThisWeek}</span>
+                    <span className="week-label">XP</span>
+                  </div>
+                  <div className="week-stat">
+                    <span className="week-value">{progress.weeklySummary.masteredThisWeek}</span>
+                    <span className="week-label">mastered</span>
+                  </div>
+                </div>
+                <div className="trend-bars">
+                  {progress.weeklyCorrectionTrend.map((count, i) => {
+                    const max = Math.max(...progress.weeklyCorrectionTrend, 1);
+                    return (
+                      <div className="trend-bar-col" key={i}>
+                        <div className="trend-bar" style={{ height: `${Math.max(4, (count / max) * 100)}%` }} />
+                        <span className="trend-bar-label">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="trend-caption">corrections per week, last 4 weeks</div>
+              </div>
+
+              <div>
+                <div className="progress-section-title">Today</div>
+                {progress.todayActivityTypes.length === 0 ? (
+                  <div className="progress-empty">No practice yet today.</div>
+                ) : (
+                  <>
+                    <div className="vocab-list">
+                      {progress.todayActivityTypes.map((t) => (
+                        <span className="vocab-chip" key={t}>
+                          {prettyActivity(t)}
+                        </span>
+                      ))}
+                    </div>
+                    {progress.todayActivityTypes.length < DAILY_BONUS_THRESHOLD && (
+                      <div className="trend-caption">
+                        {DAILY_BONUS_THRESHOLD - progress.todayActivityTypes.length} more varied{" "}
+                        {DAILY_BONUS_THRESHOLD - progress.todayActivityTypes.length === 1 ? "activity" : "activities"} for
+                        today's bonus XP
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
               {progress.focusItems.length > 0 && (
                 <div>
                   <div className="progress-section-title">Recent focus</div>
@@ -160,12 +221,19 @@ function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
               </div>
 
               <div>
-                <div className="progress-section-title">Vocabulary learned</div>
+                <div className="progress-section-title-row">
+                  <div className="progress-section-title">Vocabulary learned</div>
+                  {progress.vocabulary.length > 0 && (
+                    <button className="progress-link" onClick={onOpenVocabulary}>
+                      See all →
+                    </button>
+                  )}
+                </div>
                 {progress.vocabulary.length === 0 ? (
                   <div className="progress-empty">No new words logged yet.</div>
                 ) : (
                   <div className="vocab-list">
-                    {progress.vocabulary.map((word) => (
+                    {progress.vocabulary.slice(0, 12).map((word) => (
                       <span className="vocab-chip" key={word}>
                         {word}
                       </span>

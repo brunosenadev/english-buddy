@@ -256,3 +256,36 @@
   opacity: 0.5;
   cursor: default;
 }
+
+.activity-picker {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 62px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px -8px oklch(0 0 0 / 0.55);
+  padding: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 5;
+}
+
+.activity-picker-item {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.activity-picker-item:hover {
+  background: var(--bg-2);
+}

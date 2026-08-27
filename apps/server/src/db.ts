@@ -93,6 +93,8 @@ export function initDb(dbPath: string): Database.Database {
   ensureColumn(db, "user_profile", "last_active_date", "last_active_date TEXT");
   ensureColumn(db, "user_profile", "last_activity_type", "last_activity_type TEXT");
   ensureColumn(db, "user_profile", "next_focus_hint", "next_focus_hint TEXT");
+  ensureColumn(db, "user_profile", "activity_affinity", "activity_affinity TEXT NOT NULL DEFAULT '{}'");
+  ensureColumn(db, "user_profile", "daily_bonus_date", "daily_bonus_date TEXT");
   return db;
 }
 
@@ -427,6 +429,132 @@ export function recordReviewOutcome(db: Database.Database, patternKey: string, c
        next_review_at = ?, last_seen_at = datetime('now') WHERE id = ?`,
     ).run(daysFromNow(1), existing.id);
   }
+}
+
+interface ActivityStat {
+  count: number;
+  avgXp: number;
+  closedCount: number;
+}
+
+/** Rolling per-activity-type engagement stats — what "activity_affinity"
+ * from the original design actually resolves to: not a rigorous retention
+ * model, just count/avgXp/closedCount per type, good enough to bias which
+ * activities get suggested more. */
+export function updateActivityAffinity(db: Database.Database, activityType: string, xpAwarded: number, closed: boolean): void {
+  const row = db.prepare("SELECT activity_affinity FROM user_profile WHERE id = 1").get() as { activity_affinity: string };
+  let map: Record<string, ActivityStat> = {};
+  try {
+    map = JSON.parse(row.activity_affinity || "{}");
+  } catch {
+    map = {};
+  }
+  const cur = map[activityType] ?? { count: 0, avgXp: 0, closedCount: 0 };
+  const count = cur.count + 1;
+  const avgXp = (cur.avgXp * cur.count + xpAwarded) / count;
+  map[activityType] = { count, avgXp, closedCount: cur.closedCount + (closed ? 1 : 0) };
+  db.prepare("UPDATE user_profile SET activity_affinity = ? WHERE id = 1").run(JSON.stringify(map));
+}
+
+/** Types with at least 3 data points, ranked by average XP — the "what
+ * actually works for him" signal fed back into the context block. */
+export function getTopActivityAffinities(db: Database.Database, limit: number): { type: string; avgXp: number }[] {
+  const row = db.prepare("SELECT activity_affinity FROM user_profile WHERE id = 1").get() as { activity_affinity: string };
+  let map: Record<string, ActivityStat> = {};
+  try {
+    map = JSON.parse(row.activity_affinity || "{}");
+  } catch {
+    map = {};
+  }
+  return Object.entries(map)
+    .filter(([, stat]) => stat.count >= 3)
+    .map(([type, stat]) => ({ type, avgXp: stat.avgXp }))
+    .sort((a, b) => b.avgXp - a.avgXp)
+    .slice(0, limit);
+}
+
+export function getTodayActivityTypes(db: Database.Database): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT activity_type FROM turns WHERE date(timestamp) = date('now') AND activity_type IS NOT NULL`,
+    )
+    .all() as { activity_type: string }[];
+  return rows.map((r) => r.activity_type);
+}
+
+/**
+ * Awards a one-time daily bonus once 3+ distinct activity types have been
+ * practiced today — mirrors the original "today's checklist" idea (varied
+ * practice, not just repeating one activity type) without a separate
+ * denormalized checklist table; `turns` is already the source of truth for
+ * what was practiced today. Returns the bonus XP awarded (0 if none/already
+ * given today).
+ */
+export function maybeAwardDailyBonus(db: Database.Database): number {
+  const DAILY_BONUS_XP = 25;
+  const DAILY_BONUS_THRESHOLD = 3;
+
+  const row = db.prepare("SELECT daily_bonus_date, total_xp FROM user_profile WHERE id = 1").get() as {
+    daily_bonus_date: string | null;
+    total_xp: number;
+  };
+  const today = todayUtc();
+  if (row.daily_bonus_date === today) return 0;
+
+  const types = getTodayActivityTypes(db);
+  if (types.length < DAILY_BONUS_THRESHOLD) return 0;
+
+  db.prepare("UPDATE user_profile SET daily_bonus_date = ?, total_xp = ? WHERE id = 1").run(
+    today,
+    row.total_xp + DAILY_BONUS_XP,
+  );
+  return DAILY_BONUS_XP;
+}
+
+export interface WeeklySummary {
+  activeDays: number;
+  xpThisWeek: number;
+  correctionsThisWeek: number;
+  masteredThisWeek: number;
+}
+
+export function getWeeklySummary(db: Database.Database): WeeklySummary {
+  const activity = db
+    .prepare(
+      `SELECT COUNT(DISTINCT date(timestamp)) as activeDays, COALESCE(SUM(xp_awarded), 0) as xp,
+              COALESCE(SUM(correction_given), 0) as corrections
+       FROM turns WHERE timestamp >= datetime('now', '-7 days')`,
+    )
+    .get() as { activeDays: number; xp: number; corrections: number };
+
+  const mastered = db
+    .prepare(
+      `SELECT COUNT(*) as n FROM context_items WHERE status = 'mastered' AND last_seen_at >= datetime('now', '-7 days')`,
+    )
+    .get() as { n: number };
+
+  return {
+    activeDays: activity.activeDays,
+    xpThisWeek: activity.xp,
+    correctionsThisWeek: activity.corrections,
+    masteredThisWeek: mastered.n,
+  };
+}
+
+/** Correction counts for each of the last 4 weeks (oldest first) — a
+ * lightweight trend without pulling in a charting library. */
+export function getWeeklyCorrectionTrend(db: Database.Database): number[] {
+  const weeks: number[] = [];
+  for (let i = 3; i >= 0; i--) {
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) as n FROM turns WHERE correction_given = 1
+         AND timestamp >= datetime('now', ?) AND timestamp < datetime('now', ?)`,
+      )
+      .get(`-${(i + 1) * 7} days`, `-${i * 7} days`) as { n: number };
+    weeks.push(row.n);
+  }
+  return weeks;
 }
 
 export function loadHistory(db: Database.Database): unknown[] {

@@ -88,6 +88,106 @@
   letter-spacing: 0.03em;
 }
 
+.week-summary {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.week-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.week-value {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.week-label {
+  color: var(--text-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 48px;
+}
+
+.trend-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+}
+
+.trend-bar {
+  width: 100%;
+  max-width: 28px;
+  background: var(--accent);
+  border-radius: 3px 3px 0 0;
+  opacity: 0.75;
+}
+
+.trend-bar-label {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.trend-caption {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  margin-top: 6px;
+}
+
+.vocab-search {
+  width: 100%;
+  background: var(--bg-3);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.vocab-search::placeholder {
+  color: var(--text-faint);
+}
+
+.progress-section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.progress-section-title-row .progress-section-title {
+  margin-bottom: 0;
+}
+
+.progress-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
 .progress-section-title {
   color: var(--text-faint);
   font-size: 11px;
