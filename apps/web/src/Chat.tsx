@@ -174,6 +174,7 @@ function Chat({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const kickedOff = useRef(false);
 
@@ -256,6 +257,16 @@ function Chat({
     }
   }
 
+  // Opening a conversation with existing history should land on the most
+  // recent message, not the oldest — the kickoff path (below) already ends
+  // up scrolled down as its reply streams in, so this only matters for a
+  // returning user with prior messages.
+  useEffect(() => {
+    if (initialMessages.length > 0) scrollToBottom();
+    inputRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (initialMessages.length > 0 || kickedOff.current) return;
     kickedOff.current = true;
@@ -289,6 +300,10 @@ function Chat({
       );
     } finally {
       setSending(false);
+      // The input is disabled while sending, which blurs it — re-enabling
+      // doesn't refocus on its own, and a chat you have to keep re-clicking
+      // into isn't a chat, it's a form.
+      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }
 
@@ -367,6 +382,7 @@ function Chat({
               <DiceIcon />
             </button>
             <input
+              ref={inputRef}
               className="chat-input"
               placeholder="Type your answer in English…"
               value={draft}
