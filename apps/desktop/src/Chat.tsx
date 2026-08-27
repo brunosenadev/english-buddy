@@ -139,6 +139,17 @@ function GearIcon() {
   );
 }
 
+// Raw fetch/JS errors ("TypeError: Failed to fetch") are meaningless to a
+// user — collapse anything network-shaped into one plain-language message
+// rather than dumping the exception.
+function friendlyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/fetch|network|failed to fetch|ECONNREFUSED/i.test(raw)) {
+    return "Couldn't reach the server — check your connection and try again.";
+  }
+  return "Something went wrong on that message — try again.";
+}
+
 // The model writes plain markdown (**bold**, *italic*, `code`) — this is a
 // minimal inline renderer for just those, not a full markdown parser.
 const INLINE_MARKDOWN = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
@@ -285,6 +296,26 @@ function Chat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Escape closes the topmost thing open — the activity picker, then
+  // settings, then the whole panel — rather than always closing the panel
+  // outright. Deliberately NOT closing on window blur: this is a
+  // conversation you keep open while you tab over to your editor and back,
+  // not a launcher you glance at and dismiss.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (pickerOpen) {
+        setPickerOpen(false);
+      } else if (settingsOpen) {
+        setSettingsOpen(false);
+      } else {
+        invoke("toggle_chat_window");
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [pickerOpen, settingsOpen]);
+
   useEffect(() => {
     if (initialMessages.length > 0 || kickedOff.current) return;
     kickedOff.current = true;
@@ -292,7 +323,7 @@ function Chat({
     setMessages([{ id: aiMessageId, from: "ai", text: "" }]);
     streamInto(`${API_BASE}/api/kickoff`, null, aiMessageId).catch((err) => {
       setMessages((prev) =>
-        prev.map((m) => (m.id === aiMessageId ? { ...m, text: `Error: ${String(err)}` } : m)),
+        prev.map((m) => (m.id === aiMessageId ? { ...m, text: friendlyError(err) } : m)),
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -314,7 +345,7 @@ function Chat({
       await streamInto(`${API_BASE}/api/chat`, { text }, aiMessageId);
     } catch (err) {
       setMessages((prev) =>
-        prev.map((m) => (m.id === aiMessageId ? { ...m, text: `Error: ${String(err)}` } : m)),
+        prev.map((m) => (m.id === aiMessageId ? { ...m, text: friendlyError(err) } : m)),
       );
     } finally {
       setSending(false);
@@ -364,7 +395,7 @@ function Chat({
           </div>
 
           <div className="chat-messages" ref={messagesRef}>
-            {messages.map((m) =>
+            {messages.map((m, i) =>
               m.from === "system" ? (
                 <div className="chat-divider" key={m.id}>
                   <span>{m.text}</span>
@@ -374,7 +405,15 @@ function Chat({
                   key={m.id}
                   className={m.from === "ai" ? "bubble-msg ai-msg" : "bubble-msg user-msg"}
                 >
-                  <MessageText text={m.text} />
+                  {m.from === "ai" && m.text === "" && i === messages.length - 1 ? (
+                    <span className="typing-dots">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  ) : (
+                    <MessageText text={m.text} />
+                  )}
                 </div>
               ),
             )}

@@ -60,7 +60,9 @@ function VocabularyView({ token, onBack, onUnauthorized }: VocabularyViewProps) 
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {words === null ? null : words.length === 0 ? (
+          {words === null ? (
+            <div className="progress-empty">Loading…</div>
+          ) : words.length === 0 ? (
             <div className="progress-empty">No new words logged yet.</div>
           ) : filtered.length === 0 ? (
             <div className="progress-empty">No matches for "{query}".</div>

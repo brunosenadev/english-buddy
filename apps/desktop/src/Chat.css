@@ -190,6 +190,42 @@
   color: var(--text);
 }
 
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 0;
+}
+
+.typing-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
 .user-msg {
   align-self: flex-end;
   background: var(--accent-soft);
@@ -255,6 +291,21 @@
 .chat-send:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.chat-panel-loading {
+  min-height: 200px;
+  animation: panel-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes panel-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .activity-picker {

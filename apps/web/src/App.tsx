@@ -82,7 +82,15 @@ function App() {
     setAuth({ status: "signed-in", token, sessionInfo, initialMessages });
   }
 
-  if (auth.status === "checking") return null;
+  // A bare `null` here left the page fully blank while the token check was
+  // in flight — looked like the app just failed to load.
+  if (auth.status === "checking") {
+    return (
+      <div className="chat-stage">
+        <div className="chat-panel chat-panel-loading" />
+      </div>
+    );
+  }
 
   if (auth.status === "signed-out") {
     return <PasswordGate onAuthenticated={handleAuthenticated} />;

@@ -103,6 +103,7 @@ function ProgressView({ token, onBack, onUnauthorized, onOpenVocabulary }: Progr
         </div>
 
         <div className="progress-body">
+          {!progress && !loadFailed && <div className="progress-empty">Loading…</div>}
           {loadFailed && (
             <div className="progress-error">
               <span>Couldn't load your progress.</span>
