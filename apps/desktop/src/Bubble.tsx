@@ -1,6 +1,7 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import "./Bubble.css";
 
 const LONG_RAY = "M0,0 C-2.3,-6.5 -1.1,-13.5 0,-17 C1.1,-13.5 2.3,-6.5 0,0 Z";
@@ -51,6 +52,14 @@ function Bubble() {
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const isDragging = useRef(false);
   const didDrag = useRef(false);
+  const [notified, setNotified] = useState(false);
+
+  useEffect(() => {
+    const unlisten = listen("eb://nudge", () => setNotified(true));
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   function onMouseDown(e: React.MouseEvent) {
     if (e.button !== 0) return;
@@ -79,13 +88,17 @@ function Bubble() {
       didDrag.current = false;
       return;
     }
+    if (notified) {
+      setNotified(false);
+      invoke("nudge_acknowledged");
+    }
     invoke("toggle_chat_window");
   }
 
   return (
     <div className="bubble-stage">
       <div
-        className="bubble"
+        className={notified ? "bubble notified" : "bubble"}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}

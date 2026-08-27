@@ -10,6 +10,21 @@
   }
 }
 
+@keyframes pulseRing {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
 .bubble-stage {
   width: 100%;
   height: 100%;
@@ -19,6 +34,7 @@
 }
 
 .bubble {
+  position: relative;
   width: 56px;
   height: 56px;
   display: flex;
@@ -30,6 +46,29 @@
 
 .bubble:hover {
   transform: scale(1.08);
+}
+
+.bubble.notified::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  animation: pulseRing 2.2s ease-out infinite;
+  pointer-events: none;
+}
+
+.bubble.notified::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-2);
+  pointer-events: none;
 }
 
 .bubble-mark {

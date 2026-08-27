@@ -1,3 +1,5 @@
+mod throttle;
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use tauri::{Manager, PhysicalPosition, WindowEvent};
@@ -104,9 +106,13 @@ fn toggle_chat_window(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![toggle_chat_window])
+        .invoke_handler(tauri::generate_handler![
+            toggle_chat_window,
+            throttle::nudge_acknowledged
+        ])
         .setup(|app| {
             position_bubble(app.handle());
+            throttle::start(app.handle().clone());
 
             if let Some(window) = app.get_webview_window("bubble") {
                 let app_handle = app.handle().clone();
