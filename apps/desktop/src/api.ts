@@ -75,6 +75,13 @@ export interface CorrectionEntry {
   category: string | null;
 }
 
+export interface FocusItem {
+  patternKey: string;
+  timesSeen: number;
+  timesCorrectSince: number;
+  status: string;
+}
+
 export interface ProgressInfo {
   level: string;
   totalXp: number;
@@ -82,6 +89,7 @@ export interface ProgressInfo {
   streakLongest: number;
   corrections: CorrectionEntry[];
   vocabulary: string[];
+  focusItems: FocusItem[];
 }
 
 export type ProgressResult =

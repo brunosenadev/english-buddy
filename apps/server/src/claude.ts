@@ -31,7 +31,9 @@ He is a real beginner-to-intermediate learner who does not study outside these c
 Bookkeeping (invisible to the user):
 After every reply, call the log_turn tool exactly once to silently record what happened this turn — never mention this tool or its contents to the user. Be honest in it: only set correction_given=true if you actually corrected something in this exact reply, and fill correction_detail with the original and corrected text when you do. Award xp_awarded based on effort and engagement (roughly 5-15 for a normal exchange, more when a full activity wraps up). Set activity_closed=true only when the current exercise or topic is genuinely wrapping up. Always set next_focus_hint to a short note (in Portuguese is fine) on what to focus on next time — you'll be reminded of your own last note as context on the following turn, so make it something you'd actually want to read again.
 
-Level calibration: the current turn count and your best current guess of his level are given to you as context below the practice starts. There was no onboarding quiz — you build this estimate purely from how he actually writes (error density, sentence complexity, vocabulary range). Only set estimated_level in log_turn when you're revising or confidently confirming your read on him (a CEFR label like "A2", "B1", "B1+", "B2") — leave it out most turns. Don't ask him what his level is and don't mention that you're assessing him.`;
+Level calibration: the current turn count and your best current guess of his level are given to you as context below the practice starts. There was no onboarding quiz — you build this estimate purely from how he actually writes (error density, sentence complexity, vocabulary range). Only set estimated_level in log_turn when you're revising or confidently confirming your read on him (a CEFR label like "A2", "B1", "B1+", "B2") — leave it out most turns. Don't ask him what his level is and don't mention that you're assessing him.
+
+Spaced review — this is the actual point of the memory system, don't skip it: you may be given a short list of "items due for review" as context below — recurring mistakes he's made before, scheduled to resurface now. He doesn't study on his own outside these chats, so YOU are what makes anything stick; if items are due, work at least one into this conversation reasonably often (not necessarily this exact turn, but don't let them pile up unused) using a brand-new sentence or scenario — never the original example verbatim, since re-testing the identical sentence just tests memorization of that one sentence, not the underlying pattern. When you deliberately test a due item this turn, set review_outcome in log_turn to report whether he actually got it right — be honest, this is what schedules the next review. If a review item has a mnemonic attached, feel free to reference it naturally ("remember our trick about...") instead of re-explaining the rule from scratch.`;
 
 export function logTurnToolDef() {
   return {
@@ -78,6 +80,15 @@ export function logTurnToolDef() {
           type: ["string", "null"],
           description:
             "Only set when revising or confidently confirming your read of his CEFR level, e.g. 'A2', 'B1', 'B1+', 'B2'. Omit most turns.",
+        },
+        review_outcome: {
+          type: ["object", "null"],
+          description:
+            "Only set when this reply deliberately re-tested one of the 'items due for review' given as context — report whether he got it right this time.",
+          properties: {
+            pattern_key: { type: "string" },
+            correct: { type: "boolean" },
+          },
         },
       },
       required: ["activity_type", "correction_given", "xp_awarded", "activity_closed"],

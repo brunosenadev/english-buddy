@@ -152,6 +152,52 @@
   font-size: 12.5px;
 }
 
+.focus-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.focus-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.focus-pattern {
+  flex: 1;
+  background: var(--bg-3);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.focus-meter {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.focus-dot {
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--bg-3);
+}
+
+.focus-dot.filled {
+  background: var(--accent);
+}
+
+.focus-mastered {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 .progress-empty {
   color: var(--text-faint);
   font-size: 12.5px;

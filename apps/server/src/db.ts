@@ -51,6 +51,25 @@ CREATE TABLE IF NOT EXISTS conversation_state (
   history_json TEXT NOT NULL DEFAULT '[]'
 );
 INSERT OR IGNORE INTO conversation_state (id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS context_items (
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  pattern_key TEXT NOT NULL,
+  example_text TEXT,
+  context_note TEXT,
+  first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  times_seen INTEGER NOT NULL DEFAULT 1,
+  times_correct_since INTEGER NOT NULL DEFAULT 0,
+  next_review_at TEXT,
+  mastery_score REAL NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active',
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  priority_weight REAL NOT NULL DEFAULT 1.0,
+  mnemonic TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_context_items_review ON context_items (next_review_at) WHERE status = 'active';
 `;
 
 /** Adds a column to an already-existing table if it's not there yet — a
@@ -286,6 +305,128 @@ export function insertTurn(
     log?.activity_closed ? 1 : 0,
     log?.next_focus_hint ?? null,
   );
+}
+
+function normalizePatternKey(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Leitner-ish backoff: gets longer each time an item is seen/confirmed
+// without a failure, resets to 1 day on any review failure.
+const REVIEW_SCHEDULE_DAYS = [1, 3, 7, 14, 30];
+function reviewIntervalDays(step: number): number {
+  return REVIEW_SCHEDULE_DAYS[Math.min(Math.max(step, 1), REVIEW_SCHEDULE_DAYS.length) - 1];
+}
+function daysFromNow(days: number): string {
+  return new Date(Date.now() + days * 86400000).toISOString();
+}
+
+/**
+ * Records that a correction happened this turn — either reinforcing an
+ * existing recurring-error item (matched by normalized pattern_key) or
+ * creating a new one. This is what actually powers spaced repetition:
+ * every correction schedules a future review instead of being logged once
+ * and forgotten (which is all `turns` on its own ever did).
+ */
+export function upsertContextItem(
+  db: Database.Database,
+  input: { category: string; patternKey: string; exampleText: string | null },
+): void {
+  const normalized = normalizePatternKey(input.patternKey);
+  const existing = db
+    .prepare(
+      `SELECT id, times_seen FROM context_items WHERE LOWER(TRIM(pattern_key)) = ? AND status != 'archived' LIMIT 1`,
+    )
+    .get(normalized) as { id: string; times_seen: number } | undefined;
+
+  if (existing) {
+    const timesSeen = existing.times_seen + 1;
+    db.prepare(
+      `UPDATE context_items SET times_seen = ?, last_seen_at = datetime('now'), example_text = ?,
+       next_review_at = ?, status = 'active' WHERE id = ?`,
+    ).run(timesSeen, input.exampleText, daysFromNow(reviewIntervalDays(timesSeen)), existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO context_items (id, category, pattern_key, example_text, next_review_at) VALUES (?,?,?,?,?)`,
+    ).run(randomUUID(), input.category, input.patternKey, input.exampleText, daysFromNow(reviewIntervalDays(1)));
+  }
+}
+
+export interface DueReviewItem {
+  patternKey: string;
+  category: string;
+  exampleText: string | null;
+  mnemonic: string | null;
+  timesSeen: number;
+}
+
+/** Items whose scheduled review has come up — ordered so the most
+ * persistently-wrong patterns (highest priority_weight) surface first. */
+export function getDueReviewItems(db: Database.Database, limit: number): DueReviewItem[] {
+  return db
+    .prepare(
+      `SELECT pattern_key as patternKey, category, example_text as exampleText, mnemonic, times_seen as timesSeen
+       FROM context_items
+       WHERE status = 'active' AND next_review_at IS NOT NULL AND next_review_at <= datetime('now')
+       ORDER BY priority_weight DESC, next_review_at ASC LIMIT ?`,
+    )
+    .all(limit) as DueReviewItem[];
+}
+
+export interface FocusItem {
+  patternKey: string;
+  timesSeen: number;
+  timesCorrectSince: number;
+  status: string;
+}
+
+/** For the progress screen's "recent focus" section. */
+export function getRecentFocusItems(db: Database.Database, limit: number): FocusItem[] {
+  return db
+    .prepare(
+      `SELECT pattern_key as patternKey, times_seen as timesSeen, times_correct_since as timesCorrectSince, status
+       FROM context_items ORDER BY last_seen_at DESC LIMIT ?`,
+    )
+    .all(limit) as FocusItem[];
+}
+
+/**
+ * Applies the outcome of a deliberate review (the model re-tested a
+ * due item and reported whether the user got it right this time).
+ * Success pushes the next review further out (Leitner-style) and retires
+ * the item once it's been confirmed 3 times in a row; failure snaps the
+ * interval back to 1 day and raises priority so it surfaces again sooner.
+ */
+export function recordReviewOutcome(db: Database.Database, patternKey: string, correct: boolean): void {
+  const normalized = normalizePatternKey(patternKey);
+  const existing = db
+    .prepare(
+      `SELECT id, times_correct_since, priority_weight FROM context_items
+       WHERE LOWER(TRIM(pattern_key)) = ? AND status = 'active' LIMIT 1`,
+    )
+    .get(normalized) as { id: string; times_correct_since: number; priority_weight: number } | undefined;
+  if (!existing) return;
+
+  if (correct) {
+    const timesCorrectSince = existing.times_correct_since + 1;
+    const mastered = timesCorrectSince >= 3;
+    db.prepare(
+      `UPDATE context_items SET times_correct_since = ?, consecutive_failures = 0,
+       mastery_score = MIN(1.0, mastery_score + 0.34), status = ?, next_review_at = ?,
+       last_seen_at = datetime('now') WHERE id = ?`,
+    ).run(
+      timesCorrectSince,
+      mastered ? "mastered" : "active",
+      mastered ? null : daysFromNow(reviewIntervalDays(timesCorrectSince + 1)),
+      existing.id,
+    );
+  } else {
+    db.prepare(
+      `UPDATE context_items SET consecutive_failures = consecutive_failures + 1,
+       priority_weight = MIN(3.0, priority_weight * 1.5), times_correct_since = 0,
+       next_review_at = ?, last_seen_at = datetime('now') WHERE id = ?`,
+    ).run(daysFromNow(1), existing.id);
+  }
 }
 
 export function loadHistory(db: Database.Database): unknown[] {

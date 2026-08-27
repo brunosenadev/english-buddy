@@ -10,18 +10,22 @@ import { MODEL_HAIKU, streamTurn } from "./claude.js";
 import {
   clearNextFocusHint,
   countTurns,
+  getDueReviewItems,
   getProfileStats,
   getRecentCorrections,
+  getRecentFocusItems,
   getRecentVocabulary,
   initDb,
   insertTurn,
   loadHistory,
   newSession,
+  recordReviewOutcome,
   recordTurnOutcome,
   saveHistory,
   seedAppPassword,
   setAppPassword,
   updateProfileLevel,
+  upsertContextItem,
 } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +81,36 @@ function withHistoryLock<T>(fn: () => Promise<T> | T): Promise<T> {
     () => undefined,
   );
   return run;
+}
+
+// `history` is persisted and resent in full forever — otherwise the model
+// loses continuity across restarts. But sending the *entire* lifetime
+// conversation on every single turn means input tokens grow without bound
+// the longer someone uses the app, which is the actual cost driver (not
+// model choice — this already runs on Haiku, the cheapest tier). We keep
+// the full history for persistence/display, but only send the last
+// `HISTORY_TURNS_TO_SEND` real exchanges to the API. Cuts are made right
+// before a plain-text user message so a tool_use/tool_result pair is never
+// split across the boundary.
+const HISTORY_TURNS_TO_SEND = 12;
+
+function windowForApi(messages: Anthropic.MessageParam[], keepTurns: number): Anthropic.MessageParam[] {
+  let userTextTurns = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    const isPlainUserText =
+      msg.role === "user" && Array.isArray(msg.content) && msg.content.every((b) => b.type === "text");
+    if (isPlainUserText) {
+      userTextTurns++;
+      if (userTextTurns === keepTurns) {
+        // `i` is the oldest turn we're keeping, and it's a plain user text
+        // message — slicing here (inclusive) always starts the window on a
+        // valid user turn, never mid-pair.
+        return messages.slice(i);
+      }
+    }
+  }
+  return messages;
 }
 
 /** A per-turn nudge on top of the system prompt's language-balance rule —
@@ -138,6 +172,7 @@ app.get("/api/progress", auth, (_req, res) => {
     streakLongest: stats.streakLongest,
     corrections: getRecentCorrections(db, 20),
     vocabulary: getRecentVocabulary(db, 50),
+    focusItems: getRecentFocusItems(db, 10),
   });
 });
 
@@ -184,9 +219,21 @@ async function runTurnUnlocked(userText: string, res: express.Response): Promise
   const focusNote = stats.nextFocusHint
     ? ` Your own note from last time on what to focus on next: "${stats.nextFocusHint}" — use it if it still fits, but follow the conversation if it naturally goes elsewhere.`
     : "";
+
+  const dueItems = getDueReviewItems(db, 3);
+  const dueNote =
+    dueItems.length > 0
+      ? ` Items due for review: ${dueItems
+          .map((item) => {
+            const mnemonicPart = item.mnemonic ? `, mnemonic: "${item.mnemonic}"` : "";
+            return `{pattern: "${item.patternKey}", category: "${item.category}", last example: "${item.exampleText ?? "n/a"}"${mnemonicPart}}`;
+          })
+          .join("; ")}.`
+      : "";
+
   const contextBlock = `Context for this turn — not part of the conversation, never quote it back: total turns so far is ${turnCount}. Current estimated level: ${levelDisplay}${
     turnCount < 15 ? " (still calibrating — few data points so far, treat as a rough default)" : ""
-  }.${focusNote} ${languageReminder(levelDisplay)}`;
+  }.${focusNote}${dueNote} ${languageReminder(levelDisplay)}`;
 
   const nextHistory: Anthropic.MessageParam[] = [
     ...history,
@@ -194,7 +241,8 @@ async function runTurnUnlocked(userText: string, res: express.Response): Promise
   ];
 
   try {
-    const outcome = await streamTurn(client, MODEL_HAIKU, nextHistory, contextBlock, (delta) => {
+    const apiMessages = windowForApi(nextHistory, HISTORY_TURNS_TO_SEND);
+    const outcome = await streamTurn(client, MODEL_HAIKU, apiMessages, contextBlock, (delta) => {
       send({ type: "delta", text: delta });
     });
 
@@ -216,6 +264,20 @@ async function runTurnUnlocked(userText: string, res: express.Response): Promise
     insertTurn(db, sessionId, outcome.fullText, outcome.logTurn);
     if (outcome.logTurn?.estimated_level) {
       updateProfileLevel(db, outcome.logTurn.estimated_level);
+    }
+    if (outcome.logTurn?.correction_given && outcome.logTurn.correction_detail) {
+      upsertContextItem(db, {
+        category: outcome.logTurn.correction_detail.error_category,
+        patternKey: outcome.logTurn.correction_detail.error_category,
+        exampleText: outcome.logTurn.correction_detail.corrected,
+      });
+    }
+    if (outcome.logTurn?.review_outcome) {
+      recordReviewOutcome(
+        db,
+        outcome.logTurn.review_outcome.pattern_key,
+        outcome.logTurn.review_outcome.correct,
+      );
     }
     const xpAwarded = outcome.logTurn?.xp_awarded ?? 0;
     const { streakCurrent, totalXp } = recordTurnOutcome(db, {

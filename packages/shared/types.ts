@@ -1,9 +1,10 @@
-// Shared contract between the desktop app and the future PWA.
+// Shared contract between apps/server, apps/desktop, and apps/web.
 // This is the input schema for the `log_turn` tool the model calls on every
-// assistant turn — never shown to the user, consumed by the client to update
-// XP/streak/memory. Keep this file dependency-free (no build step) so both
-// a Vite/React app and a Rust build (via a hand-kept mirror struct) can treat
-// it as the single source of truth for the shape.
+// assistant turn — never shown to the user, consumed by the server to update
+// XP/streak/memory. Keep this file dependency-free (no build step). Note:
+// apps/server/src/claude.ts defines its own JSON Schema mirror of this for
+// the actual tool_use definition sent to the API (JSON Schema and a TS
+// interface aren't the same artifact) — keep the two in sync by hand.
 
 export type ActivityType =
   | "free_conversation"
@@ -36,6 +37,10 @@ export interface LogTurnInput {
   // Omitted most turns — only set when the model is revising or confidently
   // confirming its read of the user's CEFR level (e.g. "A2", "B1", "B1+").
   estimated_level?: string | null;
+  // Only set when this reply deliberately re-tested one of the "due for
+  // review" items given as context — reports whether he got it right this
+  // time, which is what actually drives the spaced-repetition schedule.
+  review_outcome?: { pattern_key: string; correct: boolean } | null;
 }
 
 export type ContextItemCategory =

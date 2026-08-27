@@ -107,6 +107,28 @@ function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
                 </div>
               </div>
 
+              {progress.focusItems.length > 0 && (
+                <div>
+                  <div className="progress-section-title">Recent focus</div>
+                  <div className="focus-list">
+                    {progress.focusItems.map((f) => (
+                      <div className="focus-item" key={f.patternKey}>
+                        <span className="focus-pattern">{f.patternKey}</span>
+                        <div className="focus-meter">
+                          {Array.from({ length: 5 }, (_, i) => (
+                            <span
+                              key={i}
+                              className={i < f.timesCorrectSince ? "focus-dot filled" : "focus-dot"}
+                            />
+                          ))}
+                        </div>
+                        {f.status === "mastered" && <span className="focus-mastered">mastered</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {progress.corrections.length > 0 && (
                 <div>
                   <div className="progress-section-title">Common mistakes</div>
