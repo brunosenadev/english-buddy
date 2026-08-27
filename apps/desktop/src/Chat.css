@@ -7,6 +7,7 @@
 }
 
 .chat-panel {
+  position: relative;
   width: 100%;
   height: 100%;
   background: var(--bg-2);
@@ -16,6 +17,40 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.xp-toast {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  z-index: 10;
+  animation: xp-toast-pop 2.2s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes xp-toast-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px);
+  }
+  12% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px);
+  }
 }
 
 .chat-header {
@@ -47,10 +82,19 @@
   font-weight: 600;
 }
 
+.level-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
 .chat-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .chat-streak {
@@ -58,6 +102,23 @@
   align-items: center;
   gap: 4px;
   color: var(--text-faint);
+}
+
+.chat-streak.at-risk {
+  color: oklch(0.75 0.16 55);
+}
+
+.chat-icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+}
+
+.chat-icon-btn:hover {
+  color: var(--text);
 }
 
 .chat-close {
@@ -137,6 +198,24 @@
   border-radius: 14px 14px 4px 14px;
 }
 
+.chat-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0;
+}
+
+.chat-divider span {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bg-3);
+}
+
 .chat-input-row {
   display: flex;
   align-items: center;
@@ -171,4 +250,9 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+.chat-send:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

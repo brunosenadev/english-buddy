@@ -1,19 +1,6 @@
-mod claude;
-mod commands;
-mod db;
-mod state;
-
 use serde::{Deserialize, Serialize};
-use state::AppState;
 use std::fs;
-use std::sync::Mutex;
 use tauri::{Manager, PhysicalPosition, WindowEvent};
-
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 #[derive(Serialize, Deserialize)]
 struct SavedPosition {
@@ -117,33 +104,8 @@ fn toggle_chat_window(app: tauri::AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![
-            greet,
-            toggle_chat_window,
-            commands::send_message
-        ])
+        .invoke_handler(tauri::generate_handler![toggle_chat_window])
         .setup(|app| {
-            // Loads src-tauri/.env in dev; a packaged build should source
-            // ANTHROPIC_API_KEY from the OS environment instead.
-            let _ = dotenvy::dotenv();
-            let api_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-            if api_key.is_empty() {
-                eprintln!(
-                    "warning: ANTHROPIC_API_KEY is not set — chat requests will fail"
-                );
-            }
-
-            let db = db::init_db(app.handle()).expect("failed to initialize local database");
-            let session_id = db::new_session(&db).expect("failed to create session");
-
-            app.manage(Mutex::new(AppState {
-                client: reqwest::Client::new(),
-                api_key,
-                db,
-                session_id,
-                history: Vec::new(),
-            }));
-
             position_bubble(app.handle());
 
             if let Some(window) = app.get_webview_window("bubble") {

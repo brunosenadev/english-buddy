@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Bubble from "./Bubble";
-import Chat from "./Chat";
+import ChatApp from "./ChatApp";
 
 function App() {
   const [label, setLabel] = useState<string | null>(null);
@@ -10,7 +10,7 @@ function App() {
     setLabel(getCurrentWindow().label);
   }, []);
 
-  if (label === "chat") return <Chat />;
+  if (label === "chat") return <ChatApp />;
   if (label === "bubble") return <Bubble />;
   return null;
 }

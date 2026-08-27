@@ -1,25 +1,47 @@
-import { useState, type ReactNode } from "react";
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { HistoryMessage, SessionInfo } from "./api";
+import { API_BASE } from "./config";
 import "./Chat.css";
+import SettingsSheet from "./SettingsSheet";
 
 interface Message {
   id: number;
-  from: "ai" | "user";
+  from: "ai" | "user" | "system";
   text: string;
 }
 
 type ChatEvent =
-  | { event: "textDelta"; text: string }
-  | { event: "done"; xpAwarded: number; activityClosed: boolean }
-  | { event: "error"; message: string };
+  | { type: "delta"; text: string }
+  | {
+      type: "done";
+      xpAwarded: number;
+      activityClosed: boolean;
+      activityType: string | null;
+      streakCurrent: number;
+      totalXp: number;
+    }
+  | { type: "error"; message: string };
 
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 1,
-    from: "ai",
-    text: "You just fixed a bug. Tell me what was wrong.",
-  },
-];
+const ACTIVITY_LABELS: Record<string, string> = {
+  free_conversation: "FREE TALK",
+  quick_challenge: "QUICK CHALLENGE",
+  sentence_correction: "SENTENCE FIX",
+  fill_blank: "FILL THE BLANK",
+  vocabulary: "VOCABULARY",
+  grammar_drill: "GRAMMAR DRILL",
+  tech_context: "TECH TALK",
+  meeting_simulation: "MEETING SIM",
+  interview_simulation: "INTERVIEW SIM",
+  explain_topic: "EXPLAIN THIS",
+  rewrite_natural: "REWRITE IT",
+  error_review: "ERROR REVIEW",
+};
+
+function activityLabel(activityType: string | null): string {
+  if (!activityType) return "GETTING STARTED";
+  return ACTIVITY_LABELS[activityType] ?? activityType.replace(/_/g, " ").toUpperCase();
+}
 
 function FlameIcon() {
   return (
@@ -70,6 +92,23 @@ function SendIcon() {
   );
 }
 
+function ChartIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20V10M12 20V4M20 20v-7" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}
+
 // The model writes plain markdown (**bold**, *italic*, `code`) — this is a
 // minimal inline renderer for just those, not a full markdown parser.
 const INLINE_MARKDOWN = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
@@ -90,14 +129,128 @@ function MessageText({ text }: { text: string }) {
   return <>{parts}</>;
 }
 
-let nextId = 2;
+let nextId = 1000;
 
-function Chat() {
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+interface ChatProps {
+  token: string;
+  sessionInfo: SessionInfo;
+  initialMessages: HistoryMessage[];
+  onUnauthorized: () => void;
+  onOpenProgress: () => void;
+  onLogout: () => void;
+  onPasswordChanged: (newToken: string) => void;
+  onConversationReset: () => void;
+}
+
+function Chat({
+  token,
+  sessionInfo,
+  initialMessages,
+  onUnauthorized,
+  onOpenProgress,
+  onLogout,
+  onPasswordChanged,
+  onConversationReset,
+}: ChatProps) {
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [streak, setStreak] = useState(sessionInfo.streakCurrent);
+  const [streakAtRisk, setStreakAtRisk] = useState(sessionInfo.streakAtRisk);
+  const [activityType, setActivityType] = useState<string | null>(sessionInfo.lastActivityType);
+  const [xpToast, setXpToast] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kickedOff = useRef(false);
 
-  function sendMessage() {
+  function scrollToBottom() {
+    requestAnimationFrame(() => {
+      messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight });
+    });
+  }
+
+  function showXpToast(amount: number) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setXpToast(amount);
+    toastTimer.current = setTimeout(() => setXpToast(null), 2200);
+  }
+
+  async function streamInto(url: string, body: Record<string, unknown> | null, aiMessageId: number) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+
+    if (res.status === 401) {
+      onUnauthorized();
+      return;
+    }
+    if (!res.ok || !res.body) {
+      throw new Error(`request failed (${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      let newlineIndex: number;
+      while ((newlineIndex = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, newlineIndex);
+        buf = buf.slice(newlineIndex + 1);
+        if (!line.trim()) continue;
+
+        const event = JSON.parse(line) as ChatEvent;
+        if (event.type === "delta") {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiMessageId ? { ...m, text: m.text + event.text } : m)),
+          );
+          scrollToBottom();
+        } else if (event.type === "done") {
+          setStreak(event.streakCurrent);
+          setStreakAtRisk(false);
+          if (event.activityType) setActivityType(event.activityType);
+          if (event.xpAwarded > 0) showXpToast(event.xpAwarded);
+          if (event.activityClosed) {
+            setMessages((prev) => [
+              ...prev,
+              { id: nextId++, from: "system", text: "Activity complete" },
+            ]);
+          }
+        } else if (event.type === "error") {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMessageId ? { ...m, text: `Error: ${event.message}` } : m,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (initialMessages.length > 0 || kickedOff.current) return;
+    kickedOff.current = true;
+    const aiMessageId = nextId++;
+    setMessages([{ id: aiMessageId, from: "ai", text: "" }]);
+    streamInto(`${API_BASE}/api/kickoff`, null, aiMessageId).catch((err) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === aiMessageId ? { ...m, text: `Error: ${String(err)}` } : m)),
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function sendMessage() {
     const text = draft.trim();
     if (!text || sending) return;
 
@@ -107,52 +260,41 @@ function Chat() {
 
     const aiMessageId = nextId++;
     setMessages((prev) => [...prev, { id: aiMessageId, from: "ai", text: "" }]);
+    scrollToBottom();
 
-    const channel = new Channel<ChatEvent>();
-    channel.onmessage = (event) => {
-      if (event.event === "textDelta") {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMessageId ? { ...m, text: m.text + event.text } : m,
-          ),
-        );
-      } else if (event.event === "done") {
-        setSending(false);
-      } else if (event.event === "error") {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === aiMessageId
-              ? { ...m, text: `Error: ${event.message}` }
-              : m,
-          ),
-        );
-        setSending(false);
-      }
-    };
-
-    invoke("send_message", { text, channel }).catch((err) => {
+    try {
+      await streamInto(`${API_BASE}/api/chat`, { text }, aiMessageId);
+    } catch (err) {
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === aiMessageId ? { ...m, text: `Error: ${String(err)}` } : m,
-        ),
+        prev.map((m) => (m.id === aiMessageId ? { ...m, text: `Error: ${String(err)}` } : m)),
       );
+    } finally {
       setSending(false);
-    });
+    }
   }
 
   return (
     <div className="chat-stage">
       <div className="chat-panel">
+        {xpToast !== null && <div className="xp-toast">+{xpToast} XP</div>}
+
         <div className="chat-header">
           <div className="chat-header-left">
             <div className="chat-header-mark" />
             <span className="chat-title">English Buddy</span>
+            <span className="level-badge">{sessionInfo.level}</span>
           </div>
           <div className="chat-header-right">
-            <div className="chat-streak">
+            <div className={streakAtRisk ? "chat-streak at-risk" : "chat-streak"}>
               <FlameIcon />
-              <span className="mono">14</span>
+              <span className="mono">{streak}</span>
             </div>
+            <button className="chat-icon-btn" onClick={onOpenProgress} aria-label="Progress">
+              <ChartIcon />
+            </button>
+            <button className="chat-icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Settings">
+              <GearIcon />
+            </button>
             <button
               className="chat-close"
               onClick={() => invoke("toggle_chat_window")}
@@ -166,20 +308,24 @@ function Chat() {
         <div className="chat-body">
           <div className="chat-tag">
             <BoltIcon />
-            <span>QUICK CHALLENGE</span>
+            <span>{activityLabel(activityType)}</span>
           </div>
 
-          <div className="chat-messages">
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                className={
-                  m.from === "ai" ? "bubble-msg ai-msg" : "bubble-msg user-msg"
-                }
-              >
-                <MessageText text={m.text} />
-              </div>
-            ))}
+          <div className="chat-messages" ref={messagesRef}>
+            {messages.map((m) =>
+              m.from === "system" ? (
+                <div className="chat-divider" key={m.id}>
+                  <span>{m.text}</span>
+                </div>
+              ) : (
+                <div
+                  key={m.id}
+                  className={m.from === "ai" ? "bubble-msg ai-msg" : "bubble-msg user-msg"}
+                >
+                  <MessageText text={m.text} />
+                </div>
+              ),
+            )}
           </div>
 
           <div className="chat-input-row">
@@ -204,6 +350,19 @@ function Chat() {
           </div>
         </div>
       </div>
+
+      {settingsOpen && (
+        <SettingsSheet
+          token={token}
+          onClose={() => setSettingsOpen(false)}
+          onLogout={onLogout}
+          onPasswordChanged={onPasswordChanged}
+          onConversationReset={() => {
+            setSettingsOpen(false);
+            onConversationReset();
+          }}
+        />
+      )}
     </div>
   );
 }

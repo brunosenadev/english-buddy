@@ -1,5 +1,6 @@
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
+import cors from "cors";
 import express from "express";
 import fs from "node:fs";
 import path from "node:path";
@@ -46,6 +47,10 @@ const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 const auth = requireAuth(() => currentPassword);
 
 const app = express();
+// The desktop app is a Tauri webview on a different origin than the PWA
+// (which is same-origin). Every route here is already behind the bearer
+// password check, so a permissive CORS policy adds no real exposure.
+app.use(cors());
 app.use(express.json());
 
 // A synthetic first "user" turn used to kick off a brand-new conversation —

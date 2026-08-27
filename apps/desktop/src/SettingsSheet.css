@@ -1,0 +1,131 @@
+@import "./tokens.css";
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: oklch(0 0 0 / 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 20;
+}
+
+.settings-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-soft);
+  border-bottom: none;
+  border-radius: 18px 18px 0 0;
+  padding: 18px 16px calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settings-close {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-label {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.settings-row {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-input {
+  flex: 1;
+  background: var(--bg-3);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+}
+
+.settings-input:focus {
+  border-color: var(--accent);
+}
+
+.settings-save {
+  background: var(--accent);
+  border: none;
+  border-radius: 12px;
+  padding: 0 16px;
+  color: var(--bg);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-save.danger {
+  background: oklch(0.7 0.16 25);
+  white-space: nowrap;
+}
+
+.settings-confirm-text {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 12px;
+  align-self: center;
+}
+
+.settings-feedback {
+  font-size: 12px;
+}
+
+.settings-feedback.error {
+  color: oklch(0.7 0.16 25);
+}
+
+.settings-feedback.success {
+  color: oklch(0.75 0.14 150);
+}
+
+.settings-logout {
+  background: none;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
