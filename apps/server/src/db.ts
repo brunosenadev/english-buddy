@@ -253,6 +253,13 @@ export function setAppPassword(db: Database.Database, password: string): void {
   ).run(password);
 }
 
+/** Clears the carried-over "what to focus on next" note without touching
+ * XP/streak/level — used by /api/reset-conversation so a fresh kickoff
+ * doesn't get re-anchored by a note written before the reset. */
+export function clearNextFocusHint(db: Database.Database): void {
+  db.prepare("UPDATE user_profile SET next_focus_hint = NULL WHERE id = 1").run();
+}
+
 export function insertTurn(
   db: Database.Database,
   sessionId: string,

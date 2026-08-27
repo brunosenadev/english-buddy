@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { requireAuth } from "./auth.js";
 import { MODEL_HAIKU, streamTurn } from "./claude.js";
 import {
+  clearNextFocusHint,
   countTurns,
   getProfileStats,
   getRecentCorrections,
@@ -61,6 +62,21 @@ const KICKOFF_INSTRUCTION = `${KICKOFF_MARKER} This is literally the first time 
 
 function isVisibleText(text: string): boolean {
   return text.length > 0 && !text.startsWith(KICKOFF_MARKER);
+}
+
+// Serializes every read-modify-write of the shared `history`/DB state.
+// Now that desktop and the PWA hit the same backend concurrently (the whole
+// point of the unification), two in-flight turns reading the same `history`
+// before either writes back would silently drop one of them — this makes
+// them queue instead of race.
+let historyLock: Promise<unknown> = Promise.resolve();
+function withHistoryLock<T>(fn: () => Promise<T> | T): Promise<T> {
+  const run = historyLock.then(fn, fn);
+  historyLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 /** A per-turn nudge on top of the system prompt's language-balance rule —
@@ -128,9 +144,14 @@ app.get("/api/progress", auth, (_req, res) => {
 // Wipes the conversation context (not XP/streak/turn history) so the next
 // message starts a brand-new kickoff — useful when switching topics entirely,
 // or after a pedagogy change like this one where old context anchors style.
-app.post("/api/reset-conversation", auth, (_req, res) => {
-  history = [];
-  saveHistory(db, history);
+app.post("/api/reset-conversation", auth, async (_req, res) => {
+  await withHistoryLock(() => {
+    history = [];
+    saveHistory(db, history);
+    // Otherwise the very next (kickoff) turn would re-inject a focus note
+    // written before the reset, undermining the reason for resetting.
+    clearNextFocusHint(db);
+  });
   res.json({ ok: true });
 });
 
@@ -149,9 +170,11 @@ app.post("/api/change-password", auth, (req, res) => {
  * Runs one turn: sends `userText` (plus history) to Claude, streams the
  * reply, persists everything, and reports back XP/streak/activity state.
  * Shared by /api/chat (real user text) and /api/kickoff (a synthetic first
- * turn) so both paths update history/db/streak identically.
+ * turn) so both paths update history/db/streak identically. Callers must
+ * already hold `historyLock` — this function doesn't acquire it itself so
+ * that /api/kickoff can check-and-run atomically under one lock.
  */
-async function runTurn(userText: string, res: express.Response): Promise<void> {
+async function runTurnUnlocked(userText: string, res: express.Response): Promise<void> {
   res.setHeader("Content-Type", "application/x-ndjson");
   const send = (event: Record<string, unknown>) => res.write(`${JSON.stringify(event)}\n`);
 
@@ -222,19 +245,34 @@ app.post("/api/chat", auth, async (req, res) => {
     res.status(400).json({ error: "text is required" });
     return;
   }
-  await runTurn(text, res);
+  await withHistoryLock(() => runTurnUnlocked(text, res));
 });
 
 // Kicks off a brand-new conversation with a real, model-generated opening
 // instead of a hardcoded line — a no-op if the user already has history.
+// The has-history check and the turn itself run under one lock acquisition
+// so two concurrent kickoff calls (e.g. two devices opening at once) can't
+// both see "empty" and both inject a greeting into the same conversation.
 app.post("/api/kickoff", auth, async (_req, res) => {
-  if (history.length > 0) {
-    res.setHeader("Content-Type", "application/x-ndjson");
-    res.write(`${JSON.stringify({ type: "done", xpAwarded: 0, activityClosed: false, activityType: null, streakCurrent: 0, totalXp: 0 })}\n`);
-    res.end();
-    return;
-  }
-  await runTurn(KICKOFF_INSTRUCTION, res);
+  await withHistoryLock(() => {
+    if (history.length > 0) {
+      const stats = getProfileStats(db);
+      res.setHeader("Content-Type", "application/x-ndjson");
+      res.write(
+        `${JSON.stringify({
+          type: "done",
+          xpAwarded: 0,
+          activityClosed: false,
+          activityType: stats.lastActivityType,
+          streakCurrent: stats.streakCurrent,
+          totalXp: stats.totalXp,
+        })}\n`,
+      );
+      res.end();
+      return;
+    }
+    return runTurnUnlocked(KICKOFF_INSTRUCTION, res);
+  });
 });
 
 const webDist = path.resolve(__dirname, "../../web/dist");

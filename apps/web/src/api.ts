@@ -35,7 +35,10 @@ export interface SessionInfo {
   hasHistory: boolean;
 }
 
-/** Validates a password against the server and returns session info if it's correct. */
+/** Validates a password against the server and returns session info if it's correct.
+ * Can throw on a network failure (no fetch response at all) — PasswordGate relies on
+ * that to tell "wrong password" apart from "server unreachable"; other callers that
+ * don't need the distinction should wrap this in their own try/catch. */
 export async function checkSession(token: string): Promise<SessionInfo | null> {
   const res = await fetch("/api/session", {
     headers: { Authorization: `Bearer ${token}` },
@@ -51,12 +54,16 @@ export interface HistoryMessage {
 }
 
 export async function getHistory(token: string): Promise<HistoryMessage[]> {
-  const res = await fetch("/api/history", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as { messages: HistoryMessage[] };
-  return data.messages;
+  try {
+    const res = await fetch("/api/history", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { messages: HistoryMessage[] };
+    return data.messages;
+  } catch {
+    return [];
+  }
 }
 
 export interface CorrectionEntry {
@@ -75,12 +82,24 @@ export interface ProgressInfo {
   vocabulary: string[];
 }
 
-export async function getProgress(token: string): Promise<ProgressInfo | null> {
-  const res = await fetch("/api/progress", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return null;
-  return (await res.json()) as ProgressInfo;
+export type ProgressResult =
+  | { status: "ok"; data: ProgressInfo }
+  | { status: "unauthorized" }
+  | { status: "error" };
+
+/** Distinguishes "wrong/expired password" from "server hiccup" — a 5xx or a
+ * network blip shouldn't force the user back through the password gate. */
+export async function getProgress(token: string): Promise<ProgressResult> {
+  try {
+    const res = await fetch("/api/progress", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 401) return { status: "unauthorized" };
+    if (!res.ok) return { status: "error" };
+    return { status: "ok", data: (await res.json()) as ProgressInfo };
+  } catch {
+    return { status: "error" };
+  }
 }
 
 export async function resetConversation(token: string): Promise<boolean> {

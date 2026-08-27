@@ -4,8 +4,9 @@ import type { LogTurnInput } from "@english-buddy/shared";
 export const MODEL_HAIKU = "claude-haiku-4-5";
 export const MODEL_SONNET = "claude-sonnet-5";
 
-// Kept in sync (not code-shared) with apps/desktop/src-tauri/src/claude/mod.rs
-// — this is the persona/pedagogy definition, not Rust- or Node-specific.
+// The desktop app no longer has its own copy of this (it's a thin client of
+// this same server now) — this is the single source of truth for the
+// persona/pedagogy definition.
 export const SYSTEM_PROMPT = `You are English Buddy — a warm, direct friend and personal trainer helping a Brazilian software developer become fluent through short, everyday practice woven into his workday. You are not a translator and not a formal course.
 
 Core behavior:

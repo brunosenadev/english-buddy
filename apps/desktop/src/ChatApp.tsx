@@ -20,13 +20,25 @@ type AuthState =
 type View = "chat" | "progress";
 
 async function loadSignedInState(token: string): Promise<AuthState> {
-  const sessionInfo = await checkSession(token);
-  if (!sessionInfo) {
+  try {
+    // Both only need `token` and hit independent endpoints — no reason to
+    // wait for one before starting the other.
+    const [sessionInfo, initialMessages] = await Promise.all([
+      checkSession(token),
+      getHistory(token),
+    ]);
+    if (!sessionInfo) {
+      clearToken();
+      return { status: "signed-out" };
+    }
+    return { status: "signed-in", token, sessionInfo, initialMessages };
+  } catch {
+    // checkSession can throw on a network failure (unlike a wrong password,
+    // which resolves to null) — without this, a blip on launch left the app
+    // stuck at `{status: "checking"}` (renders nothing) forever.
     clearToken();
     return { status: "signed-out" };
   }
-  const initialMessages = await getHistory(token);
-  return { status: "signed-in", token, sessionInfo, initialMessages };
 }
 
 function ChatApp() {
@@ -75,28 +87,29 @@ function ChatApp() {
     return <PasswordGate onAuthenticated={handleAuthenticated} />;
   }
 
-  if (view === "progress") {
-    return (
-      <ProgressView
-        token={auth.token}
-        onBack={() => setView("chat")}
-        onUnauthorized={handleUnauthorized}
-      />
-    );
-  }
-
   return (
-    <Chat
-      key={chatKey}
-      token={auth.token}
-      sessionInfo={auth.sessionInfo}
-      initialMessages={auth.initialMessages}
-      onUnauthorized={handleUnauthorized}
-      onOpenProgress={() => setView("progress")}
-      onLogout={handleLogout}
-      onPasswordChanged={handlePasswordChanged}
-      onConversationReset={handleConversationReset}
-    />
+    <>
+      {/* Always mounted (Progress renders as an overlay on top) so leaving and
+          returning to Progress can't reset Chat's kickoff/streak state. */}
+      <Chat
+        key={chatKey}
+        token={auth.token}
+        sessionInfo={auth.sessionInfo}
+        initialMessages={auth.initialMessages}
+        onUnauthorized={handleUnauthorized}
+        onOpenProgress={() => setView("progress")}
+        onLogout={handleLogout}
+        onPasswordChanged={handlePasswordChanged}
+        onConversationReset={handleConversationReset}
+      />
+      {view === "progress" && (
+        <ProgressView
+          token={auth.token}
+          onBack={() => setView("chat")}
+          onUnauthorized={handleUnauthorized}
+        />
+      )}
+    </>
   );
 }
 

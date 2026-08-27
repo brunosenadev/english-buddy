@@ -2,6 +2,14 @@ import { useEffect, useState } from "react";
 import { getProgress, type ProgressInfo } from "./api";
 import "./ProgressView.css";
 
+function RefreshIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2v6h-6M3 22v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L21 8M3 16l2.64 2.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  );
+}
+
 function BackIcon() {
   return (
     <svg
@@ -39,17 +47,29 @@ function topMistakes(corrections: ProgressInfo["corrections"], limit: number): {
 
 function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
-    getProgress(token).then((data) => {
-      if (!data) {
+    let cancelled = false;
+    setLoadFailed(false);
+    getProgress(token).then((result) => {
+      if (cancelled) return;
+      if (result.status === "unauthorized") {
         onUnauthorized();
         return;
       }
-      setProgress(data);
+      if (result.status === "error") {
+        setLoadFailed(true);
+        return;
+      }
+      setProgress(result.data);
     });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, reloadTick]);
 
   return (
     <div className="progress-stage">
@@ -62,6 +82,14 @@ function ProgressView({ token, onBack, onUnauthorized }: ProgressViewProps) {
         </div>
 
         <div className="progress-body">
+          {loadFailed && (
+            <div className="progress-error">
+              <span>Couldn't load your progress.</span>
+              <button className="progress-retry" onClick={() => setReloadTick((t) => t + 1)}>
+                <RefreshIcon /> Retry
+              </button>
+            </div>
+          )}
           {progress && (
             <>
               <div className="progress-stats">

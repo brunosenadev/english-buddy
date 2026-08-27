@@ -33,6 +33,9 @@ export interface LogTurnInput {
   xp_awarded: number;
   activity_closed: boolean;
   next_focus_hint: string | null;
+  // Omitted most turns — only set when the model is revising or confidently
+  // confirming its read of the user's CEFR level (e.g. "A2", "B1", "B1+").
+  estimated_level?: string | null;
 }
 
 export type ContextItemCategory =
